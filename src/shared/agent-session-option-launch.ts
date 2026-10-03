@@ -65,11 +65,11 @@ export function resolveAgentSessionOptionLaunch(
     : modelId
   const modelOverridden = catalog.modelApply.agentArgsOverride?.(trailingAgentArgs) === true
 
-  if (catalog.modelApply.launchArgs) {
+  // Why: send only what `appliedValues` reports; a flag the trailing args already set would reach
+  // argv twice, and CLIs such as Codex refuse to start on a repeated `-m`.
+  if (catalog.modelApply.launchArgs && !modelOverridden) {
     args.push(...catalog.modelApply.launchArgs(composedModelId))
-    if (!modelOverridden) {
-      appliedValues.model = modelId
-    }
+    appliedValues.model = modelId
   }
   for (const option of modelOptions) {
     const value = modelValues[option.id]
@@ -82,13 +82,15 @@ export function resolveAgentSessionOptionLaunch(
       }
       continue
     }
-    if (!option.apply.launchArgs) {
+    if (
+      !option.apply.launchArgs ||
+      modelOverridden ||
+      option.apply.agentArgsOverride?.(trailingAgentArgs)
+    ) {
       continue
     }
     args.push(...option.apply.launchArgs(value))
-    if (!modelOverridden && !option.apply.agentArgsOverride?.(trailingAgentArgs)) {
-      appliedValues[option.id] = value
-    }
+    appliedValues[option.id] = value
   }
   return { args, appliedValues }
 }
