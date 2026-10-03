@@ -23,6 +23,11 @@ function resolveTuiAgentConfig(source: TuiAgentConfigSource): TuiAgentConfig {
   }
 }
 
+// Why 1.5 s x 5: an Enter after the agent list loads always submitted in measured runs, and the
+// load trailed the composer by up to 2 s on a loaded machine; 7.5 s leaves headroom inside the
+// 30 s observation window without leaning on an Enter that a dialog could consume.
+const OPENCODE_SUBMIT_RETRY = { intervalMs: 1_500, maxRetries: 5 }
+
 const TUI_AGENT_CONFIG_SOURCE: Record<TuiAgent, TuiAgentConfigSource> = {
   claude: {
     detectCmd: 'claude',
@@ -103,7 +108,10 @@ const TUI_AGENT_CONFIG_SOURCE: Record<TuiAgent, TuiAgentConfigSource> = {
       'opencode-1-18-32-timed-boot-slow',
       'opencode-1-18-32-timed-boot-hidden-pane',
       'opencode-1-18-32-timed-first-launch'
-    ]
+    ],
+    // Why: OpenCode 2 silently drops an Enter until it has loaded its agent list from its server,
+    // which can trail the composer by seconds on a loaded machine (STA-9359).
+    submitRetryUntilTurnStart: OPENCODE_SUBMIT_RETRY
   },
   // Why: opencode2 installs as a separate binary and uses the same prompt flags.
   // Its @opentui composer keeps the same cursor-gated paste signal.
@@ -114,7 +122,8 @@ const TUI_AGENT_CONFIG_SOURCE: Record<TuiAgent, TuiAgentConfigSource> = {
     promptInjectionMode: 'flag-prompt',
     draftPasteReadySignal: 'render-cursor-after-bracketed-paste',
     draftPasteReadyTimeoutMs: 20_000,
-    composerReadyCaptures: ['opencode-2-0-18-timed-boot-hidden-pane']
+    composerReadyCaptures: ['opencode-2-0-18-timed-boot-hidden-pane'],
+    submitRetryUntilTurnStart: OPENCODE_SUBMIT_RETRY
   },
   'mimo-code': {
     detectCmd: 'mimo',
