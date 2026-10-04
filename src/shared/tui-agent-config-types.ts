@@ -13,6 +13,7 @@ export type DraftPasteReadySignal =
   | 'grok-composer-prompt'
   | 'dsh-composer-prompt'
   | 'zcode-composer-prompt'
+  | 'opencode-agent-row'
 
 export type TuiAgentDetectionRuntime = NodeJS.Platform | 'wsl'
 
@@ -47,12 +48,6 @@ export type TuiAgentConfig = {
   composerReadyCaptures?: readonly string[]
   /** Delay before one extra blind submit Enter, for agents that render their composer before Enter is live (codex); a no-op if the first Enter landed. */
   submitRetryDelayMs?: number
-  /**
-   * Main-process prompt submit: press Enter again every `intervalMs`, at most `maxRetries` times,
-   * until this pane's status hooks report the turn started. For TUIs that draw their composer
-   * before Enter is live. Never sent without hook evidence for the pane, or past a prompt.
-   */
-  submitRetryUntilTurnStart?: { intervalMs: number; maxRetries: number }
   /** Extra ms per logical prompt line before Enter, for TUIs that expand multiline paste slowly (antigravity). */
   submitLineSettleMsPerLine?: number
   /** Windows Shift+Enter encoding override; omitted agents keep the legacy Esc+CR path. */

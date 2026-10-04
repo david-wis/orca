@@ -14,7 +14,7 @@ const GROK_ALT_SCREEN_LEAVE = '\x1b[?1049l\x1b[?25h'
 const GROK_COMPOSER_FRAME = '\x1b[38;2;80;80;88m│\x1b[38;2;200;200;200m❯ \x1b[0m'
 
 describe('createDraftPasteReadyScanner', () => {
-  describe('render-cursor-after-bracketed-paste (opencode / mimo-code)', () => {
+  describe('render-cursor-after-bracketed-paste (mimo-code)', () => {
     it('is ready when show-cursor renders after bracketed paste in one chunk', () => {
       const scanner = createDraftPasteReadyScanner('render-cursor-after-bracketed-paste')
       expect(scanner.observe(`${DECSET_BRACKETED_PASTE}${SHOW_CURSOR}`)).toEqual({
@@ -117,6 +117,45 @@ describe('createDraftPasteReadyScanner', () => {
         ready: false,
         armQuietTimer: false
       })
+    })
+  })
+
+  describe('opencode-agent-row', () => {
+    // OpenCode's box, then the row under it once its agent list has loaded (shape from 2.0.21).
+    const BOX = `${ALT_SCREEN_ENTER}${DECSET_BRACKETED_PASTE}┃  Ask anything…${SHOW_CURSOR}`
+    const AGENT_ROW = '\x1b[29;47HBuild\x1b[0m\x1b[29;53H\u00b7\x1b[0m\x1b[29;55HSome Model'
+
+    it('is not ready on the input box and its cursor alone', () => {
+      const scanner = createDraftPasteReadyScanner('opencode-agent-row')
+      expect(scanner.observe(BOX)).toEqual({ ready: false, armQuietTimer: false })
+    })
+
+    it('is ready once the agent row paints its separator', () => {
+      const scanner = createDraftPasteReadyScanner('opencode-agent-row')
+      scanner.observe(BOX)
+      expect(scanner.observe(AGENT_ROW)).toEqual({ ready: true, armQuietTimer: false })
+    })
+
+    it('ignores a separator a shell prompt draws before OpenCode enters the alternate screen', () => {
+      const scanner = createDraftPasteReadyScanner('opencode-agent-row')
+      expect(
+        scanner.observe(
+          `${DECSET_BRACKETED_PASTE}~ \u00b7 main % opencode${DECRST_BRACKETED_PASTE}`
+        )
+      ).toEqual({ ready: false, armQuietTimer: false })
+      expect(scanner.observe(BOX).ready).toBe(false)
+    })
+
+    it('ignores a separator painted after OpenCode leaves the alternate screen', () => {
+      const scanner = createDraftPasteReadyScanner('opencode-agent-row')
+      scanner.observe(BOX)
+      expect(scanner.observe(`${ALT_SCREEN_LEAVE}~ \u00b7 main %`).ready).toBe(false)
+    })
+
+    it('never arms the quiet window', () => {
+      const scanner = createDraftPasteReadyScanner('opencode-agent-row')
+      expect(scanner.observe(BOX).armQuietTimer).toBe(false)
+      expect(scanner.observe('more frames').armQuietTimer).toBe(false)
     })
   })
 

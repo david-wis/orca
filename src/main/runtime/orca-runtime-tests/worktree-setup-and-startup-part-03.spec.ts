@@ -554,7 +554,12 @@ describe('OrcaRuntimeService', () => {
 
     // Past the old 8s default, where readiness would previously have been abandoned.
     await vi.advanceTimersByTimeAsync(10_000)
-    runtime.onPtyData('pty-opencode-draft-budget', '\x1b[?2004h\x1b[?25h', Date.now())
+    // The box and its cursor, then the agent/model row once OpenCode's agent list has loaded.
+    runtime.onPtyData(
+      'pty-opencode-draft-budget',
+      '\x1b[?1049h\x1b[?2004h\x1b[?25hBuild \u00b7 Some Model',
+      Date.now()
+    )
     await Promise.resolve()
     await Promise.resolve()
 

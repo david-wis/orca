@@ -223,8 +223,7 @@ export type RuntimeTerminalPromptStage = 'input_accepted' | 'turn_started'
 export type RuntimeTerminalPromptDelivery = {
   requestId: string
   stages: RuntimeTerminalPromptStage[]
-  /** The agent whose turn start Orca observes for this prompt, or why none is observed. */
-  provider: TuiAgent | 'unsupported' | 'old-host'
+  provider: 'claude' | 'codex' | 'unsupported' | 'old-host'
   observation: 'supported' | 'unsupported' | 'incarnation_replaced' | 'permission'
   processIncarnation: string
   generation: number

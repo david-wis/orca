@@ -69,6 +69,9 @@ vi.mock('@/runtime/runtime-terminal-stream', () => ({
 
 const DECSET_BRACKETED_PASTE = '\x1b[?2004h'
 const SHOW_CURSOR = '\x1b[?25h'
+// OpenCode's box and cursor, then the agent/model row it paints once its agent list loads.
+const OPENCODE_BOX = `\x1b[?1049h${DECSET_BRACKETED_PASTE}${SHOW_CURSOR}`
+const OPENCODE_AGENT_ROW = 'Build \u00b7 Some Model'
 const CODEX_COMPOSER_PROMPT_RENDER = '\x1b[1m›\x1b[0m Ask Codex to do anything'
 const CODEX_DYNAMIC_COMPOSER_PROMPT_RENDER = '\x1b[?1049h\x1b[1m›\x1b[0m Implement {feature}'
 const ISSUE_URL = 'https://github.com/stablyai/orca/issues/123'
@@ -205,7 +208,7 @@ describe('pasteDraftWhenAgentReady', () => {
     )
   })
 
-  it('pastes into opencode as soon as show-cursor renders after bracketed paste is enabled', async () => {
+  it('pastes into opencode once the agent row renders under its box, not on the box alone', async () => {
     const promise = pasteDraftWhenAgentReady({
       tabId: 'tab-1',
       content: ISSUE_URL,
@@ -213,11 +216,11 @@ describe('pasteDraftWhenAgentReady', () => {
     })
     await flushMicrotasks()
 
-    testState.ptyObserver?.(DECSET_BRACKETED_PASTE)
+    testState.ptyObserver?.(OPENCODE_BOX)
     await flushMicrotasks()
     expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
 
-    testState.ptyObserver?.(SHOW_CURSOR)
+    testState.ptyObserver?.(OPENCODE_AGENT_ROW)
 
     await expect(promise).resolves.toBe(true)
     expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledWith(
@@ -236,7 +239,7 @@ describe('pasteDraftWhenAgentReady', () => {
     })
     await flushMicrotasks()
 
-    testState.ptyObserver?.(DECSET_BRACKETED_PASTE)
+    testState.ptyObserver?.(OPENCODE_BOX)
     await flushMicrotasks()
     for (let index = 0; index < 5; index += 1) {
       await vi.advanceTimersByTimeAsync(1499)
@@ -245,7 +248,7 @@ describe('pasteDraftWhenAgentReady', () => {
       expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
     }
 
-    testState.ptyObserver?.(SHOW_CURSOR)
+    testState.ptyObserver?.(OPENCODE_AGENT_ROW)
 
     await expect(promise).resolves.toBe(true)
     expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledWith(
@@ -259,7 +262,7 @@ describe('pasteDraftWhenAgentReady', () => {
   it('does not paste on the quiet window for opencode (it never arms one)', async () => {
     // Why: opencode is silent for ~1.5-2s between enabling bracketed paste and
     // mounting its composer. A quiet window would fire during that gap and paste
-    // before the composer exists (the original bug), so the cursor signal must
+    // before the composer exists (the original bug), so its readiness signal must
     // not arm one. With process inspection failing, delivery times out instead.
     testState.inspectRuntimeTerminalProcess.mockResolvedValue(null)
     const onTimeout = vi.fn()

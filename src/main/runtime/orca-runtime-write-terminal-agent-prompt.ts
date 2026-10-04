@@ -16,12 +16,10 @@ import {
 } from '../../shared/agent-prompt-injection'
 import type { AgentPromptWaitTextCache } from './agent-prompt-submission-verification'
 import {
+  isTerminalSendSettlementAgent,
   resolveAgentPromptEffectTimeoutMs,
-  resolveTerminalPromptSettlementAgent,
   verifyAgentPromptSubmission
 } from './agent-prompt-submission-verification'
-import { createAgentPromptResubmit } from './agent-prompt-resubmit'
-import { isAgentStatusHooksEnabledForAgent } from '../../shared/agent-status-hooks-setting'
 
 export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithResolveAuthoritativeTerminalWaitPermission {
   protected async writeTerminalAgentPrompt(
@@ -110,45 +108,23 @@ export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithReso
       }
     }
     const effectTimeoutMs = resolveAgentPromptEffectTimeoutMs(this.getPtyAgent(ptyId))
-    const foregroundAgent = this.ptysById.get(ptyId)?.foregroundAgent
-    const launchAgent = this.ptysById.get(ptyId)?.launchAgent
-    let extraSubmits = 0
-    // Already inside this pane's prompt serialisation, so the extra Enter writes directly.
-    const resubmit = submitWithPaste
-      ? undefined
-      : createAgentPromptResubmit({
-          agent: foregroundAgent ?? launchAgent,
-          hooksReporting: () => this.getFreshExplicitAgentStatusForPty(handle, ptyId) !== null,
-          assertSafe: () => {
-            this.assertAgentPromptGeneration(ptyId, generation)
-            this.assertAgentPromptPermissionSafe(
-              permissionBaseline,
-              this.getAgentPromptActivity(handle, ptyId)
-            )
-          },
-          writeEnter: () => {
-            const written =
-              this.ptyController?.write(ptyId, AGENT_PROMPT_SUBMIT, options.inputKind) === true
-            extraSubmits += written ? 1 : 0
-            return written
-          }
-        })
     if (!options.acceptQueued || !options.requestId) {
       await verifyAgentPromptSubmission({
         baseline,
         readActivity: () => this.getAgentPromptActivity(handle, ptyId, waitTextCache),
         timeoutMs: effectTimeoutMs,
-        signal: options.signal,
-        resubmit
+        signal: options.signal
       })
-      return { submits: 1 + extraSubmits }
+      return { submits: 1 }
     }
     const binding = this.getTerminalPromptRequestBinding(handle)
-    const settlementAgent = resolveTerminalPromptSettlementAgent(
-      foregroundAgent,
-      launchAgent,
-      (agent) => isAgentStatusHooksEnabledForAgent(this.store?.getSettings?.(), agent)
-    )
+    const foregroundAgent = this.ptysById.get(ptyId)?.foregroundAgent
+    const launchAgent = this.ptysById.get(ptyId)?.launchAgent
+    const settlementAgent = isTerminalSendSettlementAgent(foregroundAgent)
+      ? foregroundAgent
+      : isTerminalSendSettlementAgent(launchAgent)
+        ? launchAgent
+        : null
     const inputAccepted: RuntimeTerminalPromptDelivery = {
       requestId: options.requestId,
       stages: ['input_accepted'],
@@ -195,12 +171,11 @@ export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithReso
           ),
         allowOutputEvidence: false,
         signal: options.signal,
-        timeoutMs: options.observationTimeoutMs ?? effectTimeoutMs,
-        resubmit
+        timeoutMs: options.observationTimeoutMs ?? effectTimeoutMs
       })
       this.forgetAgentPromptRequest(ptyId, generation, options.requestId)
       return {
-        submits: 1 + extraSubmits,
+        submits: 1,
         prompt: {
           ...inputAccepted,
           stages: ['input_accepted', 'turn_started']
@@ -208,12 +183,12 @@ export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithReso
       }
     } catch (error) {
       if (error instanceof Error && error.message === 'agent_prompt_stalled') {
-        return { submits: 1 + extraSubmits, prompt: inputAccepted }
+        return { submits: 1, prompt: inputAccepted }
       }
       if (error instanceof Error && error.message === 'agent_prompt_blocked') {
         this.forgetAgentPromptRequest(ptyId, generation, options.requestId)
         return {
-          submits: 1 + extraSubmits,
+          submits: 1,
           prompt: { ...inputAccepted, observation: 'permission' }
         }
       }

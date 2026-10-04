@@ -85,12 +85,7 @@ describe('pty-bound agent draft readiness budget', () => {
     await vi.advanceTimersByTimeAsync(10_000)
 
     await expect(promise).resolves.toBe(true)
-    expect(testState.waitForReady).toHaveBeenCalledWith(
-      'pty-1',
-      20_000,
-      'render-cursor-after-bracketed-paste',
-      {}
-    )
+    expect(testState.waitForReady).toHaveBeenCalledWith('pty-1', 20_000, 'opencode-agent-row', {})
     expect(testState.sendInput).toHaveBeenCalledTimes(1)
     expect(onUnconfirmedDelivery).not.toHaveBeenCalled()
   })

@@ -69,7 +69,7 @@ const EXPECTED_LANES: Record<TuiAgent, LaunchedAgentReadinessLane> = {
 
 const FIXTURES = join(__dirname, '__fixtures__')
 const OPENCODE_PLACEHOLDER = 'Ask anything'
-const SYNCHRONIZED_UPDATE_END = '\x1b[?2026l'
+const AGENT_ROW = /\u00b7 \S/
 
 const CITED_CAPTURES = Object.entries(TUI_AGENT_CONFIG).flatMap(([agent, row]) =>
   (row.composerReadyCaptures ?? []).map((capture) => [agent, capture] as const)
@@ -138,35 +138,34 @@ describe('every capture a row cites proves its input-box marker', () => {
     expect(firstReadyRead(agent, readReads(capture))).toBeGreaterThanOrEqual(0)
   })
 
-  it.each(
-    CITED_CAPTURES.filter(([agent]) => readSignal(agent) === 'render-cursor-after-bracketed-paste')
-  )(
-    '%s: the first ready read in %s is the one that shows the input box',
+  it.each(CITED_CAPTURES.filter(([agent]) => readSignal(agent) === 'opencode-agent-row'))(
+    '%s: the first ready read in %s is no earlier than the agent row under the box',
     async (agent, capture) => {
       const meta: { cols: number; rows: number } = JSON.parse(
         readFileSync(join(FIXTURES, `${capture}.meta.json`), 'utf8')
       )
       const { chunks } = readTimedRuntimeFixture(capture)
-      const data = chunks.join('')
-      // OpenCode paints its box in one synchronized update, shown when that update ends.
-      const boxEnd = data.indexOf(SYNCHRONIZED_UPDATE_END, data.indexOf(OPENCODE_PLACEHOLDER))
       let boxRead = -1
-      for (let index = 0, end = 0; index < chunks.length && boxRead === -1; index += 1) {
-        end += chunks[index].length
-        boxRead = end >= boxEnd + SYNCHRONIZED_UPDATE_END.length ? index : -1
-      }
-      let placeholderRead = -1
+      let rowRead = -1
       let read = 0
       for await (const frame of replayTranscript(chunks, meta.cols, meta.rows)) {
-        if (frame.screenLines.some((line) => line.includes(OPENCODE_PLACEHOLDER))) {
-          placeholderRead = read
+        const box = frame.screenLines.findIndex((line) => line.includes(OPENCODE_PLACEHOLDER))
+        if (box !== -1 && boxRead === -1) {
+          boxRead = read
+        }
+        // The row under the box reads `<agent> · <model>`; a read can paint the separator first.
+        if (box !== -1 && frame.screenLines.slice(box + 1).some((line) => AGENT_ROW.test(line))) {
+          rowRead = read
           break
         }
         read += 1
       }
-      expect(placeholderRead).toBeGreaterThanOrEqual(0)
-      expect(boxRead).toBeGreaterThanOrEqual(placeholderRead)
-      expect(firstReadyRead(agent, chunks)).toBe(boxRead)
+      expect(boxRead).toBeGreaterThanOrEqual(0)
+      expect(rowRead).toBeGreaterThanOrEqual(boxRead)
+      // OpenCode 1 paints the row just before the box's cursor in one frame; 2 paints it later.
+      const cursorRead = createDraftPasteReadyScanner('render-cursor-after-bracketed-paste')
+      const boxCursorRead = chunks.findIndex((chunk) => cursorRead.observe(chunk).ready)
+      expect(firstReadyRead(agent, chunks)).toBe(Math.max(rowRead, boxCursorRead))
     }
   )
 })

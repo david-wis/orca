@@ -17,29 +17,34 @@ import type { GrokStartupTraceChunk } from '../../shared/__fixtures__/grok-start
 import { readRuntimeFixture, readTimedRuntimeFixture } from './agent-transcript-replay-test-harness'
 
 type Walk = { anchor: string; end: string; marker: string }
+type Walks = Walk | Walk[]
 
 const ALT_SCREEN: Walk = { anchor: '\x1b[?1049h', end: '\x1b[?1049l', marker: '' }
-const WALKS: Partial<Record<DraftPasteReadySignal, Walk>> = {
-  'render-cursor-after-bracketed-paste': {
-    anchor: '\x1b[?2004h',
-    end: '\x1b[?2004l',
-    marker: '\x1b[?25h'
-  },
+const BOX_CURSOR: Walk = { anchor: '\x1b[?2004h', end: '\x1b[?2004l', marker: '\x1b[?25h' }
+// A signal with several walks is ready once all of them are.
+const WALKS: Partial<Record<DraftPasteReadySignal, Walks>> = {
+  'render-cursor-after-bracketed-paste': BOX_CURSOR,
   'grok-composer-prompt': { ...ALT_SCREEN, marker: '❯' },
   'dsh-composer-prompt': { ...ALT_SCREEN, marker: '❯' },
-  'zcode-composer-prompt': { ...ALT_SCREEN, marker: '╭' }
+  'zcode-composer-prompt': { ...ALT_SCREEN, marker: '╭' },
+  'opencode-agent-row': [BOX_CURSOR, { ...ALT_SCREEN, marker: '\u00b7' }]
 }
 
 // Recorded zsh shape: the prompt enables bracketed paste and accept-line disables it before exec.
-// The launcher's cursor toggle after that is synthetic, standing in for any spinner.
+// The launcher's cursor toggle after that is synthetic, standing in for any spinner, and so is the
+// `·` in the prompt, standing in for a theme that draws OpenCode's agent-row separator.
 const ZSH_LAUNCH_PROLOGUE =
-  '\x1b[?2004h% opencode\x1b[?2004l\r\n\x1b]2;opencode\x07\x1b[?25lresolving\x1b[?25h\r\n'
+  '\x1b[?2004h~ \u00b7 main % opencode\x1b[?2004l\r\n\x1b]2;opencode\x07\x1b[?25lresolving\x1b[?25h\r\n'
 
 const OPENCODE_TIMED = [
   'opencode-1-18-32-timed-boot-slow',
   'opencode-1-18-32-timed-boot-hidden-pane',
   'opencode-1-18-32-timed-first-launch',
-  'opencode-2-0-18-timed-boot-hidden-pane'
+  'opencode-2-0-18-timed-boot-hidden-pane',
+  'opencode-2-0-21-timed-cold-standalone',
+  'opencode-2-0-21-timed-cold-standalone-hidden-pane',
+  'opencode-2-0-21-timed-busy-standalone',
+  'opencode-cmd-2-0-21-timed-warm-server'
 ]
 
 type Case = { name: string; signal: DraftPasteReadySignal; data: string; reads?: string[] }
@@ -70,17 +75,22 @@ const CASES: Case[] = [
     data: readRuntimeFixture('zcode-composer-ready')
   },
   {
-    name: 'opencode (untimed pty transcript)',
+    name: 'opencode (untimed pty transcript), cursor signal mimo-code still uses',
     signal: 'render-cursor-after-bracketed-paste',
+    data: readPtyTranscript('opencode.txt')
+  },
+  {
+    name: 'opencode (untimed pty transcript)',
+    signal: 'opencode-agent-row',
     data: readPtyTranscript('opencode.txt')
   },
   ...OPENCODE_TIMED.flatMap((name): Case[] => {
     const { chunks } = readTimedRuntimeFixture(name)
     return [
-      { name, signal: 'render-cursor-after-bracketed-paste', data: chunks.join(''), reads: chunks },
+      { name, signal: 'opencode-agent-row', data: chunks.join(''), reads: chunks },
       {
         name: `${name} behind a zsh launch`,
-        signal: 'render-cursor-after-bracketed-paste',
+        signal: 'opencode-agent-row',
         data: ZSH_LAUNCH_PROLOGUE + chunks.join(''),
         reads: [ZSH_LAUNCH_PROLOGUE, ...chunks]
       }
@@ -88,8 +98,14 @@ const CASES: Case[] = [
   })
 ]
 
+/** End offset where every walk has seen its marker, or null when one never does. */
+function walkReadyEnd(data: string, walks: Walks): number | null {
+  const ends = (Array.isArray(walks) ? walks : [walks]).map((walk) => walkOne(data, walk))
+  return ends.some((end) => end === null) ? null : Math.max(...ends.map((end) => end ?? 0))
+}
+
 /** End offset of the first marker seen while the anchor is held, walking the whole string. */
-function walkReadyEnd(data: string, { anchor, end, marker }: Walk): number | null {
+function walkOne(data: string, { anchor, end, marker }: Walk): number | null {
   let cursor = 0
   for (;;) {
     const enter = data.indexOf(anchor, cursor)
@@ -182,7 +198,7 @@ describe('draft-paste readiness does not depend on how the stream is chunked', (
   })
 
   it.each(OPENCODE_TIMED)('%s: a zsh launch in front moves nothing but the offset', (name) => {
-    const walk = WALKS['render-cursor-after-bracketed-paste']!
+    const walk = WALKS['opencode-agent-row']!
     const data = readTimedRuntimeFixture(name).chunks.join('')
     const alone = walkReadyEnd(data, walk)
     expect(alone).not.toBeNull()

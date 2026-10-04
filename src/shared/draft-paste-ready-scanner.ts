@@ -26,6 +26,10 @@ const GROK_COMPOSER_PROMPT = '❯'
 // means the composer specifically. Anchored on the alternate-screen switch for the same
 // reason as grok: a powerline shell prompt can also draw `╭`.
 const ZCODE_COMPOSER_BOX_CORNER = '╭'
+// Why: the separator OpenCode paints between the agent and the model in the row under its input
+// box. That row is drawn only once the agent list has loaded from OpenCode's server; until then
+// its composer drops Enter silently, so the box alone is not ready. Structural, not a name.
+const OPENCODE_AGENT_ROW_SEPARATOR = '\u00b7'
 const DECSET_ALT_SCREEN = '\x1b[?1049h'
 const DECRST_ALT_SCREEN = '\x1b[?1049l'
 
@@ -40,7 +44,18 @@ type DraftPasteReadySignalSpec = {
   quietAnchor: string | null
 }
 
-const DRAFT_PASTE_READY_SIGNALS: Record<DraftPasteReadySignal, DraftPasteReadySignalSpec> = {
+/** Signals that are ready only once every listed part has fired, in any order. */
+const ALL_OF_SIGNALS: Partial<Record<DraftPasteReadySignal, readonly SingleSignal[]>> = {
+  // Why both: OpenCode 2 shows its box cursor before the row; OpenCode 1 paints the row just
+  // before the cursor in the frame that draws the box, so waiting for both delays neither.
+  'opencode-agent-row': ['render-cursor-after-bracketed-paste', 'opencode-agent-row-separator']
+}
+
+type SingleSignal =
+  | Exclude<DraftPasteReadySignal, 'opencode-agent-row'>
+  | 'opencode-agent-row-separator'
+
+const DRAFT_PASTE_READY_SIGNALS: Record<SingleSignal, DraftPasteReadySignalSpec> = {
   'codex-composer-prompt': {
     markerAnchor: DECSET_BRACKETED_PASTE,
     markerAnchorEnd: null,
@@ -89,6 +104,14 @@ const DRAFT_PASTE_READY_SIGNALS: Record<DraftPasteReadySignal, DraftPasteReadySi
     // its own — but keep it armed as the floor for a build that renders inline and never
     // switches to the alternate screen, where the marker anchor would never arm.
     quietAnchor: DECSET_BRACKETED_PASTE
+  },
+  'opencode-agent-row-separator': {
+    // Why the alternate screen: a shell prompt can draw `·` after enabling bracketed paste,
+    // and OpenCode enters the alternate screen before it draws anything.
+    markerAnchor: DECSET_ALT_SCREEN,
+    markerAnchorEnd: DECRST_ALT_SCREEN,
+    marker: OPENCODE_AGENT_ROW_SEPARATOR,
+    quietAnchor: null
   },
   'render-quiet-after-bracketed-paste': {
     markerAnchor: null,
@@ -151,6 +174,12 @@ export type DraftPasteReadyScanResult = {
  *     mounted — so the quiet window alone never settles and a launch draft would wait out
  *     the whole hard timeout, exactly as grok did. Same alt-screen anchoring and
  *     revocation as grok, because a powerline shell prompt can draw `╭` too.
+ *   - `opencode-agent-row`: ready once both the box's show-cursor (as above) and the `·`
+ *     between the agent and the model, after the alternate-screen switch, have rendered,
+ *     i.e. once the row under the input box exists. OpenCode 2 mounts the box before its
+ *     agent list arrives from its server and drops an Enter sent in that gap; OpenCode 1
+ *     paints the row in the frame that draws the box. No quiet window: the hard timeout
+ *     is the backstop.
  *   - `render-quiet-after-bracketed-paste` (default): no signal marker; arms the
  *     quiet window once DECSET 2004 is seen.
  *
@@ -158,6 +187,28 @@ export type DraftPasteReadyScanResult = {
  * split across chunk boundaries without retaining terminal scrollback.
  */
 export function createDraftPasteReadyScanner(readySignal: DraftPasteReadySignal): {
+  observe: (data: string) => DraftPasteReadyScanResult
+} {
+  if (isSingleSignal(readySignal)) {
+    return createSingleSignalScanner(readySignal)
+  }
+  const scanners = (ALL_OF_SIGNALS[readySignal] ?? []).map(createSingleSignalScanner)
+  const fired = scanners.map(() => false)
+  return {
+    observe(data: string): DraftPasteReadyScanResult {
+      scanners.forEach((scanner, index) => {
+        fired[index] ||= scanner.observe(data).ready
+      })
+      return { ready: fired.length > 0 && fired.every(Boolean), armQuietTimer: false }
+    }
+  }
+}
+
+function isSingleSignal(signal: DraftPasteReadySignal): signal is SingleSignal {
+  return signal in DRAFT_PASTE_READY_SIGNALS
+}
+
+function createSingleSignalScanner(readySignal: SingleSignal): {
   observe: (data: string) => DraftPasteReadyScanResult
 } {
   let recent = ''

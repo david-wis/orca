@@ -28,8 +28,14 @@ const RUNS: [string, TuiAgent][] = [
   ['opencode-1-18-32-timed-boot-slow', 'opencode'],
   ['opencode-1-18-32-timed-boot-hidden-pane', 'opencode'],
   ['opencode-1-18-32-timed-first-launch', 'opencode'],
-  ['opencode-2-0-18-timed-boot-hidden-pane', 'opencode2']
+  ['opencode-cmd-2-0-21-timed-warm-server', 'opencode'],
+  ['opencode-2-0-18-timed-boot-hidden-pane', 'opencode2'],
+  ['opencode-2-0-21-timed-cold-standalone', 'opencode2'],
+  ['opencode-2-0-21-timed-cold-standalone-hidden-pane', 'opencode2'],
+  ['opencode-2-0-21-timed-busy-standalone', 'opencode2']
 ]
+const OPENCODE_1_RUNS = RUNS.filter(([name]) => name.startsWith('opencode-1-'))
+const AGENT_ROW_SEPARATOR = '\u00b7'
 
 /** The read that ends the synchronized update drawing OpenCode's input box. */
 function boxRead(chunks: string[]): number {
@@ -39,6 +45,14 @@ function boxRead(chunks: string[]): number {
     SYNCHRONIZED_UPDATE_END.length
   let end = 0
   return chunks.findIndex((chunk) => (end += chunk.length) >= boxEnd)
+}
+
+/** The read that paints the separator in the agent/model row under the box. */
+function agentRowRead(chunks: string[]): number {
+  const data = chunks.join('')
+  const separator = data.indexOf(AGENT_ROW_SEPARATOR, data.indexOf('\x1b[?1049h'))
+  let end = 0
+  return chunks.findIndex((chunk) => (end += chunk.length) > separator)
 }
 
 async function replay(name: string, agent: TuiAgent) {
@@ -73,22 +87,39 @@ async function replay(name: string, agent: TuiAgent) {
     runtime.onPtyData(TRANSCRIPT_PANE_PTY_ID, chunk, Date.now())
     await vi.advanceTimersByTimeAsync(0)
   }
-  return { settledAt, composer, boxRead: boxRead(chunks) }
+  return { settledAt, composer, boxRead: boxRead(chunks), agentRowRead: agentRowRead(chunks) }
 }
 
-describe('an OpenCode worker gets its task only once its input box exists', () => {
+describe('an OpenCode worker gets its task only once OpenCode can submit it', () => {
   afterEach(() => {
     vi.useRealTimers()
   })
 
   it.each(RUNS)(
-    '%s: the worker-start lane settles on the read that shows the box',
+    '%s: the worker-start lane settles once the box and the agent row are both painted',
     async (name, agent) => {
-      const { settledAt, composer, boxRead } = await replay(name, agent)
+      const { settledAt, composer, boxRead, agentRowRead } = await replay(name, agent)
       await expect(composer).resolves.toMatchObject({ satisfied: true })
+      // OpenCode 1 paints the row inside the box's frame, so the box read is the later one there.
+      expect(settledAt.composer).toBe(Math.max(boxRead, agentRowRead))
+    }
+  )
+
+  it.each(OPENCODE_1_RUNS)(
+    '%s: OpenCode 1 paints the agent row with the box, so it waits no longer than before',
+    async (name, agent) => {
+      const { settledAt, boxRead } = await replay(name, agent)
       expect(settledAt.composer).toBe(boxRead)
     }
   )
+
+  it('never settles on the box while a slow agent list leaves the row unpainted', async () => {
+    const { settledAt, boxRead } = await replay(
+      'opencode-2-0-21-timed-busy-standalone',
+      'opencode2'
+    )
+    expect(settledAt.composer).toBeGreaterThan(boxRead)
+  })
 
   it.each(RUNS)(
     '%s: the bare-name tui-idle wait main used would have settled before the box',

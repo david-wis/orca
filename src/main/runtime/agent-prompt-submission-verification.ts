@@ -1,11 +1,6 @@
 export { AGENT_PROMPT_EFFECT_TIMEOUT_MS } from '../../shared/orchestration-timing-budgets'
 import { AGENT_PROMPT_EFFECT_TIMEOUT_MS } from '../../shared/orchestration-timing-budgets'
-import type { TerminalAgent, TuiAgent } from '../../shared/terminal-agent'
-import {
-  getAgentSubmitRetryUntilTurnStart,
-  type AgentPromptResubmit
-} from './agent-prompt-resubmit'
-import { isTuiAgent } from '../../shared/tui-agent-config'
+import type { TerminalAgent } from '../../shared/terminal-agent'
 
 export const AGENT_PROMPT_HOOK_EFFECT_TIMEOUT_MS = AGENT_PROMPT_EFFECT_TIMEOUT_MS
 const AGENT_PROMPT_EFFECT_POLL_MS = 50
@@ -47,8 +42,6 @@ type AgentPromptVerificationOptions = {
   allowOutputEvidence?: boolean
   signal?: AbortSignal
   timeoutMs?: number
-  /** Presses Enter again while no turn start is observed (see agent-prompt-resubmit.ts). */
-  resubmit?: AgentPromptResubmit
 }
 
 export function resolveAgentPromptEffectTimeoutMs(agent: TerminalAgent | null | undefined): number {
@@ -62,32 +55,6 @@ export function isTerminalSendSettlementAgent(
   agent: TerminalAgent | null | undefined
 ): agent is 'antigravity' | 'claude' | 'codex' {
   return agent === 'antigravity' || agent === 'claude' || agent === 'codex'
-}
-
-/**
- * The provider whose turn start settles this prompt's receipt. Agents whose row retries Enter until
- * a turn starts are observed through their status hooks, so they qualify only while those are on.
- */
-export function resolveTerminalPromptSettlementAgent(
-  foregroundAgent: TerminalAgent | null | undefined,
-  launchAgent: TuiAgent | null | undefined,
-  isStatusHooksEnabled: (agent: TuiAgent) => boolean
-): TuiAgent | null {
-  for (const agent of [foregroundAgent, launchAgent]) {
-    if (isTerminalSendSettlementAgent(agent)) {
-      return agent
-    }
-  }
-  for (const agent of [foregroundAgent, launchAgent]) {
-    if (
-      isTuiAgent(agent) &&
-      getAgentSubmitRetryUntilTurnStart(agent) &&
-      isStatusHooksEnabled(agent)
-    ) {
-      return agent
-    }
-  }
-  return null
 }
 
 export function isAgentPromptStalledError(error: unknown): boolean {
@@ -123,9 +90,6 @@ export async function verifyAgentPromptSubmission(
   assertPromptNotBlocked(options.baseline, options.baseline)
 
   const deadline = Date.now() + (options.timeoutMs ?? AGENT_PROMPT_EFFECT_TIMEOUT_MS)
-  const { resubmit } = options
-  let resubmits = 0
-  let lastSubmitAt = Date.now()
   while (Date.now() < deadline) {
     const current = options.readActivity()
     assertSamePromptGeneration(options.baseline, current)
@@ -140,19 +104,6 @@ export async function verifyAgentPromptSubmission(
       )
     ) {
       return
-    }
-    // Why after the checks above: a changed pane or a drawn prompt has already thrown, so no
-    // extra Enter can land on a replaced process or answer an approval.
-    if (
-      resubmit &&
-      resubmits < resubmit.maxRetries &&
-      Date.now() - lastSubmitAt >= resubmit.intervalMs
-    ) {
-      lastSubmitAt = Date.now()
-      if (await resubmit.send()) {
-        resubmits += 1
-      }
-      continue
     }
     await waitForAgentPromptPoll(options.signal)
   }
