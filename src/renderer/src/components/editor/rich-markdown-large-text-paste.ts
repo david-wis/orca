@@ -55,19 +55,8 @@ function isEditorAvailable(
 
 function isEditorPasteTargetCurrent(editor: Editor, targetDom: HTMLElement): boolean {
   return (
-    !editor.isDestroyed &&
-    editor.view.dom === targetDom &&
-    targetDom.isConnected &&
-    editor.view.hasFocus()
+    isEditorAvailable(editor, undefined) && editor.view.dom === targetDom && editor.view.hasFocus()
   )
-}
-
-function readPlainText(event: ClipboardEvent): string {
-  return event.clipboardData?.getData('text/plain') ?? ''
-}
-
-function readHtmlText(event: ClipboardEvent): string {
-  return event.clipboardData?.getData('text/html') ?? ''
 }
 
 function shouldHandleLargeRichMarkdownPaste({
@@ -130,6 +119,7 @@ async function executeRichMarkdownLargeTextPaste(
       dispose()
       return
     }
+    const ownChunk = transaction === insertionTransaction
     for (const next of [transaction, ...appendedTransactions]) {
       if (next === insertionTransaction && insertionEnd) {
         bookmark = insertionEnd
@@ -153,7 +143,7 @@ async function executeRichMarkdownLargeTextPaste(
             })
             return changed
           })
-          if (overlaps) {
+          if (overlaps && !ownChunk) {
             dispose()
             return
           }
@@ -256,20 +246,23 @@ async function executeRichMarkdownLargeTextPaste(
   }
 }
 
+function showRichMarkdownLargePasteLimitError(): void {
+  toast.error(
+    translate('auto.components.editor.richMarkdownLargeTextPaste.tooLarge', 'Paste is too large.')
+  )
+}
+
 export function handleRichMarkdownLargeTextPaste(
   editor: Editor | null,
   event: ClipboardEvent,
   options: RichMarkdownLargeTextPasteOptions = {}
 ): boolean {
-  if (event.defaultPrevented) {
-    return false
-  }
-  if (!editor) {
+  if (event.defaultPrevented || !editor) {
     return false
   }
 
-  const text = options.plainTextOverride ?? readPlainText(event)
-  const html = options.htmlTextOverride ?? readHtmlText(event)
+  const text = options.plainTextOverride ?? event.clipboardData?.getData('text/plain') ?? ''
+  const html = options.htmlTextOverride ?? event.clipboardData?.getData('text/html') ?? ''
   const directMaxBytes = options.directMaxBytes ?? RICH_MARKDOWN_PASTE_DIRECT_MAX_BYTES
   const maxBytes = options.maxBytes ?? RICH_MARKDOWN_PASTE_MAX_BYTES
   const ownershipMeasurement = measureTextControlPasteByteLength(text, {
@@ -288,9 +281,7 @@ export function handleRichMarkdownLargeTextPaste(
 
   event.preventDefault()
   if (!text || (maxBytes <= directMaxBytes && ownershipMeasurement.exceededLimit)) {
-    toast.error(
-      translate('auto.components.editor.richMarkdownLargeTextPaste.tooLarge', 'Paste is too large.')
-    )
+    showRichMarkdownLargePasteLimitError()
     return true
   }
 
@@ -308,11 +299,18 @@ export function handleRichMarkdownLargeTextPaste(
   // synchronous parser and writes bounded plain-text fallback transactions.
   void executeRichMarkdownLargeTextPaste(editor, text, guardedOptions).then((result) => {
     if (result.status === 'rejected' && result.reason === 'too-large') {
-      toast.error(
-        translate(
-          'auto.components.editor.richMarkdownLargeTextPaste.tooLarge',
-          'Paste is too large.'
-        )
+      showRichMarkdownLargePasteLimitError()
+    } else if (result.status === 'cancelled') {
+      toast.info(
+        result.chunksWritten
+          ? translate(
+              'auto.components.editor.richMarkdownLargeTextPaste.stopped',
+              'Large paste stopped before it finished.'
+            )
+          : translate(
+              'auto.components.editor.richMarkdownLargeTextPaste.cancelled',
+              'Large paste cancelled because its original target changed.'
+            )
       )
     }
   })

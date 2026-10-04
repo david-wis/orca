@@ -3,12 +3,13 @@ import { Editor, Extension } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { TableKit } from '@tiptap/extension-table'
 import { CellSelection } from '@tiptap/pm/tables'
-import { AllSelection, Plugin } from '@tiptap/pm/state'
+import { AllSelection, Plugin, TextSelection } from '@tiptap/pm/state'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { toast } from 'sonner'
 import { handleRichMarkdownLargeTextPaste } from './rich-markdown-large-text-paste'
 import { setRichMarkdownImageResolverContext } from './rich-markdown-image-context'
 
-vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), info: vi.fn() } }))
 vi.mock('@/i18n/i18n', () => ({ translate: (_key: string, fallback: string) => fallback }))
 
 const editors: Editor[] = []
@@ -65,6 +66,7 @@ afterEach(() => {
   editors.splice(0).forEach((editor) => editor.destroy())
   document.body.replaceChildren()
   vi.restoreAllMocks()
+  vi.clearAllMocks()
 })
 
 describe('large Markdown paste selection during yields', () => {
@@ -81,6 +83,8 @@ describe('large Markdown paste selection during yields', () => {
     expect(editor.state.doc.child(1).textContent).toBe('second paragraph')
     expect(editor.state.selection.from).toBe(editor.state.doc.child(0).nodeSize + 1)
     expect(document.activeElement).toBe(editor.view.dom)
+    expect(toast.info).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('keeps every remaining production-size chunk at its insertion end after the caret moves', async () => {
@@ -154,6 +158,10 @@ describe('large Markdown paste selection during yields', () => {
       expect(editor.getJSON()).toEqual(changed)
       expect(off.mock.calls.map(([event]) => event)).toContain('transaction')
       expect(off.mock.calls.map(([event]) => event)).toContain('destroy')
+      expect(toast.info).toHaveBeenCalledExactlyOnceWith(
+        'Large paste cancelled because its original target changed.'
+      )
+      expect(toast.error).not.toHaveBeenCalled()
     }
   )
 
@@ -186,6 +194,10 @@ describe('large Markdown paste selection during yields', () => {
       delay.resume()
       await flush()
       expect(editor.state.doc.child(0).textContent).toBe('hello world')
+      expect(toast.info).toHaveBeenCalledExactlyOnceWith(
+        'Large paste cancelled because its original target changed.'
+      )
+      expect(toast.error).not.toHaveBeenCalled()
     }
   )
 
@@ -341,6 +353,10 @@ describe('large Markdown paste selection during yields', () => {
     await flush()
     expect(editor.state.doc.eq(initial)).toBe(true)
     expect(off.mock.calls.map(([event]) => event)).toEqual(['transaction', 'destroy'])
+    expect(toast.info).toHaveBeenCalledExactlyOnceWith(
+      'Large paste cancelled because its original target changed.'
+    )
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it.each(['disabled', 'disconnected', 'destroyed'] as const)(
@@ -369,6 +385,10 @@ describe('large Markdown paste selection during yields', () => {
       }
       expect(off.mock.calls.map(([event]) => event)).toContain('transaction')
       expect(off.mock.calls.map(([event]) => event)).toContain('destroy')
+      expect(toast.info).toHaveBeenCalledExactlyOnceWith(
+        'Large paste cancelled because its original target changed.'
+      )
+      expect(toast.error).not.toHaveBeenCalled()
     }
   )
   it('preserves marks armed at the original collapsed paste caret', async () => {
@@ -458,6 +478,8 @@ describe('large Markdown paste selection during yields', () => {
     delay.resume()
     await flush()
     expect(document.activeElement).toBe(input)
+    expect(toast.info).toHaveBeenCalledExactlyOnceWith('Large paste stopped before it finished.')
+    expect(toast.error).not.toHaveBeenCalled()
     expect(editor.state.plugins).toEqual(initialPlugins)
     editor.view.dom.focus()
     editor.commands.insertContent('T')
@@ -486,5 +508,89 @@ describe('large Markdown paste selection during yields', () => {
     await flush()
     expect(editor.state.doc.eq(changed)).toBe(true)
     expect(editor.state.plugins).toEqual(initialPlugins)
+    expect(toast.info).toHaveBeenCalledExactlyOnceWith(
+      'Large paste cancelled because its original target changed.'
+    )
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('keeps an appended-only external edit separate from both paste segments in undo', async () => {
+    const appendTyping = Extension.create({
+      name: 'appendExternalTyping',
+      addProseMirrorPlugins: () => [
+        new Plugin({
+          appendTransaction(transactions, _old, state) {
+            return transactions.some((tr) => tr.getMeta('appendExternalTyping'))
+              ? state.tr.insertText('T')
+              : null
+          }
+        })
+      ]
+    })
+    const editor = createEditor(undefined, [appendTyping])
+    const initial = editor.state.doc
+    const delay = pause()
+    handleRichMarkdownLargeTextPaste(editor, pasteEvent('ABCDE'), {
+      directMaxBytes: 1,
+      chunkMaxBytes: 2,
+      yieldToEventLoop: vi.fn().mockReturnValueOnce(delay.promise).mockResolvedValue(undefined)
+    })
+    await flush()
+    expect(editor.state.doc.child(0).textContent).toBe('hello AB')
+    editor.view.dispatch(
+      editor.state.tr
+        .setSelection(
+          TextSelection.create(editor.state.doc, editor.state.doc.child(0).nodeSize + 1)
+        )
+        .setMeta('appendExternalTyping', true)
+    )
+    const typed = editor.state.doc
+    expect(typed.child(1).textContent).toBe('Tsecond paragraph')
+    delay.resume()
+    await flush()
+    expect(editor.state.doc.child(0).textContent).toBe('hello ABCDE')
+    expect(editor.state.doc.child(1).textContent).toBe('Tsecond paragraph')
+    expect(editor.commands.undo()).toBe(true)
+    expect(editor.state.doc.eq(typed)).toBe(true)
+    expect(editor.commands.undo()).toBe(true)
+    expect(editor.state.doc.child(0).textContent).toBe('hello AB')
+    expect(editor.state.doc.child(1).textContent).toBe('second paragraph')
+    expect(editor.commands.undo()).toBe(true)
+    expect(editor.state.doc.eq(initial)).toBe(true)
+    expect(toast.info).not.toHaveBeenCalled()
+  })
+
+  it('cancels when an external appended edit replaces the pending selected text', async () => {
+    const appendTargetEdit = Extension.create({
+      name: 'appendTargetEdit',
+      addProseMirrorPlugins: () => [
+        new Plugin({
+          appendTransaction(transactions, _old, state) {
+            return transactions.some((tr) => tr.getMeta('appendTargetEdit'))
+              ? state.tr.insertText('changed', 7, 12)
+              : null
+          }
+        })
+      ]
+    })
+    const editor = createEditor(undefined, [appendTargetEdit])
+    const delay = pause()
+    handleRichMarkdownLargeTextPaste(editor, pasteEvent(), {
+      yieldToEventLoop: vi.fn().mockReturnValueOnce(delay.promise).mockResolvedValue(undefined)
+    })
+    editor.view.dispatch(
+      editor.state.tr
+        .setSelection(TextSelection.create(editor.state.doc, 14))
+        .setMeta('appendTargetEdit', true)
+    )
+    const changed = editor.state.doc
+    expect(changed.child(0).textContent).toBe('hello changed')
+    delay.resume()
+    await flush()
+    expect(editor.state.doc.eq(changed)).toBe(true)
+    expect(toast.info).toHaveBeenCalledExactlyOnceWith(
+      'Large paste cancelled because its original target changed.'
+    )
+    expect(document.activeElement).toBe(editor.view.dom)
   })
 })

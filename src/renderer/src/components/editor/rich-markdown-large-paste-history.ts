@@ -5,15 +5,20 @@ import { closeHistory } from '@tiptap/pm/history'
 export function trackRichMarkdownLargePasteHistory(editor: Editor, onInterrupt: () => void) {
   const key = new PluginKey('richMarkdownLargePasteHistory')
   let writingChunk = false
+  let externalBoundaryStarted = false
   let active = true
   editor.registerPlugin(
     new Plugin({
       key,
       filterTransaction(transaction, state) {
-        // Appended changes stay in their initiating transaction's undo event.
-        if (!writingChunk && state === editor.state && transaction.docChanged) {
+        if (!writingChunk && state === editor.state) {
+          externalBoundaryStarted = false
+        }
+        // An external event may first change the document in an appended transaction.
+        if (!writingChunk && transaction.docChanged && !externalBoundaryStarted) {
           closeHistory(transaction)
           onInterrupt()
+          externalBoundaryStarted = true
         }
         return true
       }

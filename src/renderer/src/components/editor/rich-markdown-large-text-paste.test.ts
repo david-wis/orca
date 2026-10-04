@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import { handleRichMarkdownLargeTextPaste } from './rich-markdown-large-text-paste'
 
 vi.mock('sonner', () => ({
-  toast: { error: vi.fn() }
+  toast: { error: vi.fn(), info: vi.fn() }
 }))
 
 vi.mock('@/i18n/i18n', () => ({
@@ -86,6 +86,8 @@ describe('rich markdown large text paste', () => {
     expect(handleRichMarkdownLargeTextPaste(editor, handled, { directMaxBytes: 8 })).toBe(false)
     expect(small.defaultPrevented).toBe(false)
     expect(chunks).toEqual([])
+    expect(toast.info).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('inserts large plain text through chunked ProseMirror transactions', async () => {
@@ -108,6 +110,8 @@ describe('rich markdown large text paste', () => {
     expect(chunks.join('')).toBe(text)
     expect(chunks.some((chunk) => /[\uD800-\uDBFF]$/.test(chunk))).toBe(false)
     expect(yieldToEventLoop).toHaveBeenCalledTimes(chunks.length - 1)
+    expect(toast.info).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('claims large plain-text paste before yielded preflight inserts editor content', async () => {
@@ -135,6 +139,8 @@ describe('rich markdown large text paste', () => {
 
     expect(chunks.join('')).toBe(text)
     expect(yieldToEventLoop).toHaveBeenCalled()
+    expect(toast.info).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('falls back to plain text when rich HTML is too large for synchronous parsing', async () => {
@@ -157,6 +163,8 @@ describe('rich markdown large text paste', () => {
     expect(chunks.join('')).toBe(text)
     expect(chunks.join('')).not.toContain('hidden-token')
     expect(yieldToEventLoop).toHaveBeenCalledTimes(chunks.length - 1)
+    expect(toast.info).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('uses byte length, not string length, when deciding whether rich HTML is large', async () => {
@@ -176,6 +184,8 @@ describe('rich markdown large text paste', () => {
     expect(event.defaultPrevented).toBe(true)
     expect(chunks.join('')).toBe('fallback')
     expect(yieldToEventLoop).toHaveBeenCalledTimes(1)
+    expect(toast.info).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('rejects large rich HTML without a plain-text fallback before editor parsing', () => {
@@ -193,6 +203,7 @@ describe('rich markdown large text paste', () => {
     expect(chunks).toEqual([])
     expect(toast.error).toHaveBeenCalledWith('Paste is too large.')
     expect(JSON.stringify(vi.mocked(toast.error).mock.calls)).not.toContain('hidden-token')
+    expect(toast.info).not.toHaveBeenCalled()
   })
 
   it('rejects oversized rich-editor paste without logging or inserting content', async () => {
@@ -213,6 +224,7 @@ describe('rich markdown large text paste', () => {
     expect(chunks).toEqual([])
     expect(toast.error).toHaveBeenCalledWith('Paste is too large.')
     expect(JSON.stringify(vi.mocked(toast.error).mock.calls)).not.toContain(secret)
+    expect(toast.info).not.toHaveBeenCalled()
   })
 
   it('rejects oversized multibyte rich-editor paste before inserting content', async () => {
@@ -231,6 +243,7 @@ describe('rich markdown large text paste', () => {
     expect(event.defaultPrevented).toBe(true)
     expect(chunks).toEqual([])
     expect(toast.error).toHaveBeenCalledWith('Paste is too large.')
+    expect(toast.info).not.toHaveBeenCalled()
   })
 
   it('stops chunking when the editor is destroyed between chunks', async () => {
@@ -249,6 +262,8 @@ describe('rich markdown large text paste', () => {
 
     expect(event.defaultPrevented).toBe(true)
     expect(chunks).toEqual(['abcdef'])
+    expect(toast.info).toHaveBeenCalledExactlyOnceWith('Large paste stopped before it finished.')
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('stops chunking when focus leaves the original editor target', async () => {
@@ -267,5 +282,8 @@ describe('rich markdown large text paste', () => {
 
     expect(event.defaultPrevented).toBe(true)
     expect(chunks).toEqual(['abcdef'])
+    expect(toast.info).toHaveBeenCalledExactlyOnceWith('Large paste stopped before it finished.')
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(document.activeElement).not.toBe(editor.view.dom)
   })
 })
