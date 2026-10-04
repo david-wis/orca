@@ -46,6 +46,8 @@ export function createOpenCodeAgentRowScanner(): {
 } {
   let carry = ''
   let altScreen = false
+  // Once a full-screen app has left, a box cursor outside the alternate screen is the shell's.
+  let leftAltScreen = false
   let bracketedPaste = false
   let boxCursorShown = false
   let row: number | null = null
@@ -65,6 +67,10 @@ export function createOpenCodeAgentRowScanner(): {
     if (mode === '1049') {
       altScreen = set
       resetLayout()
+      if (!set) {
+        leftAltScreen = true
+        boxCursorShown = false
+      }
     } else if (mode === '2004') {
       bracketedPaste = set
       if (!set) {
@@ -140,9 +146,10 @@ export function createOpenCodeAgentRowScanner(): {
         index = escapeAt + 2
       }
       // Leaving the alternate screen clears rowPainted, so it only holds while OpenCode is drawn.
+      const graceApplies = boxCursorShown && !rowPainted && (altScreen || !leftAltScreen)
       return {
         ready: rowPainted && boxCursorShown,
-        readyAfterMs: boxCursorShown && !rowPainted ? OPENCODE_AGENT_ROW_GRACE_MS : null
+        readyAfterMs: graceApplies ? OPENCODE_AGENT_ROW_GRACE_MS : null
       }
     }
   }

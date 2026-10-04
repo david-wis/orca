@@ -209,6 +209,19 @@ describe('createDraftPasteReadyScanner', () => {
       ).toBe(false)
     })
 
+    it('withdraws the grace when OpenCode leaves the alternate screen before its row', () => {
+      const scanner = createDraftPasteReadyScanner('opencode-agent-row')
+      expect(scanner.observe(BOX)).toEqual(GRACE)
+      const shellPrompt = `${DECSET_BRACKETED_PASTE}% ${SHOW_CURSOR}`
+      expect(scanner.observe(`${ALT_SCREEN_LEAVE}${shellPrompt}`)).toEqual({
+        ready: false,
+        armQuietTimer: false,
+        readyAfterMs: null
+      })
+      // A later OpenCode start in the same pane gets the grace again.
+      expect(scanner.observe(BOX)).toEqual(GRACE)
+    })
+
     it('withdraws readiness and the grace timer when bracketed paste is turned off', () => {
       const scanner = createDraftPasteReadyScanner('opencode-agent-row')
       expect(scanner.observe(BOX + AGENT_ROW).ready).toBe(true)
