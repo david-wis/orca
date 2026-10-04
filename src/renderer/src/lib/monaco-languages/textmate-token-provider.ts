@@ -46,6 +46,7 @@ class TextMateTokenizerState implements Monaco.languages.IState {
   }
 }
 
+/** Adapts TextMate line tokens and parser state to Monaco, with optional scope mapping. */
 function createTokensProvider(
   grammar: IGrammar,
   fallbackScopeName: string,
@@ -73,6 +74,7 @@ function createTokensProvider(
   }
 }
 
+/** Loads the regex engine and requested grammar, rejecting missing grammars before tokenization. */
 export async function createTextMateTokensProvider(
   options: TextMateTokensProviderOptions
 ): Promise<TextMateTokensProvider> {

@@ -30,6 +30,7 @@ export const haskellLanguageConfiguration: Monaco.languages.LanguageConfiguratio
   ]
 }
 
+/** Lazily loads the vendored Haskell grammar, returning null for unrelated scopes. */
 export async function loadHaskellTextMateGrammar(scopeName: string): Promise<IRawGrammar | null> {
   if (scopeName !== HASKELL_TEXTMATE_SCOPE) {
     return null
@@ -41,6 +42,7 @@ export async function loadHaskellTextMateGrammar(scopeName: string): Promise<IRa
   return grammarModule.default as unknown as IRawGrammar
 }
 
+/** Registers Haskell once with lazy tokenization and light/dark function colors. */
 export function registerHaskellLanguage(monaco: MonacoModule): void {
   if (monaco.languages.getLanguages().some(({ id }) => id === HASKELL_LANGUAGE_ID)) {
     return

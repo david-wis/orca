@@ -1,3 +1,4 @@
+/** Maps a TextMate scope stack to one Monaco token, preserving comment precedence. */
 export function mapHaskellTokenScopes(scopes: readonly string[]): string {
   if (scopes.some((scope) => scope.startsWith('comment.'))) {
     return 'comment.haskell'

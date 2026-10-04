@@ -23,6 +23,7 @@ function loadDefaultProviderModule(): Promise<TextMateTokenProviderModule> {
   return import('./textmate-token-provider')
 }
 
+/** Registers a language once and shares its lazily created token provider across editors. */
 export function registerTextMateLanguage(
   monaco: MonacoModule,
   registration: TextMateLanguageRegistration
