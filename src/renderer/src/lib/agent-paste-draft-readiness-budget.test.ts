@@ -85,17 +85,41 @@ describe('pty-bound agent draft readiness budget', () => {
     await vi.advanceTimersByTimeAsync(10_000)
 
     await expect(promise).resolves.toBe(true)
-    expect(testState.waitForReady).toHaveBeenCalledWith('pty-1', 20_000, 'opencode-agent-row', {})
+    expect(testState.waitForReady).toHaveBeenCalledWith(
+      'pty-1',
+      20_000,
+      'render-cursor-after-bracketed-paste',
+      {}
+    )
     expect(testState.sendInput).toHaveBeenCalledTimes(1)
     expect(onUnconfirmedDelivery).not.toHaveBeenCalled()
   })
 
-  it('flags a blind paste when only the agent process, not its composer, was seen', async () => {
+  it.each(['opencode', 'opencode2'] as const)(
+    'waits for the %s agent row only when Enter follows the paste',
+    async (agent) => {
+      const promise = pasteDraftToAgentPtyWhenReady({
+        tabId: 'tab-1',
+        ptyId: 'pty-1',
+        content: 'task',
+        agent,
+        submit: true,
+        forcePaste: true
+      })
+
+      await vi.advanceTimersByTimeAsync(12_000)
+
+      await expect(promise).resolves.toBe(true)
+      expect(testState.waitForReady).toHaveBeenCalledWith('pty-1', 20_000, 'opencode-agent-row', {})
+    }
+  )
+
+  it('flags a blind paste when only the opencode process, not its composer, was seen', async () => {
     // Regression (#22479): ConPTY never forwards DECSET 2004, so on Windows this is the only
     // path opencode can take. Callers must be able to tell it apart from a real delivery.
     testState.waitForReady.mockResolvedValue(false)
     testState.inspectProcess.mockResolvedValue({
-      foregroundProcess: 'grok',
+      foregroundProcess: 'opencode',
       hasChildProcesses: false
     })
     const onUnconfirmedDelivery = vi.fn()
@@ -103,7 +127,7 @@ describe('pty-bound agent draft readiness budget', () => {
       tabId: 'tab-1',
       ptyId: 'pty-1',
       content: 'draft',
-      agent: 'grok',
+      agent: 'opencode',
       forcePaste: true,
       onUnconfirmedDelivery
     })
@@ -113,32 +137,6 @@ describe('pty-bound agent draft readiness budget', () => {
     await expect(promise).resolves.toBe(true)
     expect(testState.sendInput).toHaveBeenCalledTimes(1)
     expect(onUnconfirmedDelivery).toHaveBeenCalledTimes(1)
-  })
-
-  it('reports a timeout instead of pasting blind when OpenCode never paints its agent row', async () => {
-    testState.waitForReady.mockResolvedValue(false)
-    testState.inspectProcess.mockResolvedValue({
-      foregroundProcess: 'opencode',
-      hasChildProcesses: false
-    })
-    const onTimeout = vi.fn()
-    const onUnconfirmedDelivery = vi.fn()
-    const promise = pasteDraftToAgentPtyWhenReady({
-      tabId: 'tab-1',
-      ptyId: 'pty-1',
-      content: 'draft',
-      agent: 'opencode',
-      forcePaste: true,
-      onTimeout,
-      onUnconfirmedDelivery
-    })
-
-    await vi.advanceTimersByTimeAsync(1000)
-
-    await expect(promise).resolves.toBe(false)
-    expect(onTimeout).toHaveBeenCalledTimes(1)
-    expect(onUnconfirmedDelivery).not.toHaveBeenCalled()
-    expect(testState.sendInput).not.toHaveBeenCalled()
   })
 
   it('keeps the 8s readiness deadline for agents without an agent-specific budget', async () => {

@@ -1,6 +1,9 @@
 import { isShellProcess } from '../../shared/agent-detection'
 import { isExpectedAgentProcess } from '../../shared/agent-process-recognition'
-import { createDraftPasteReadyScanner } from '../../shared/draft-paste-ready-scanner'
+import {
+  createDraftPasteReadyScanner,
+  resolvePasteReadySignal
+} from '../../shared/draft-paste-ready-scanner'
 import { resolveDraftPasteReadyTimeoutMs } from '../../shared/draft-paste-ready-timeout'
 import { TUI_AGENT_CONFIG } from '../../shared/tui-agent-config'
 import type { TuiAgent } from '../../shared/tui-agent'
@@ -91,18 +94,18 @@ export function waitForWorktreeStartupDraft(
   host: WorktreeStartupReadinessHost,
   handle: string,
   agent: TuiAgent,
-  options: { timeoutMs?: number; requireComposerMarker?: boolean } = {}
+  options: { timeoutMs?: number; requireComposerMarker?: boolean; submit?: boolean } = {}
 ): Promise<string | null> {
   const ptyId = host.getPtyId(handle)
   if (!ptyId) {
     return Promise.resolve(null)
   }
-  const signal =
-    TUI_AGENT_CONFIG[agent].draftPasteReadySignal ?? 'render-quiet-after-bracketed-paste'
+  const signal = resolvePasteReadySignal(TUI_AGENT_CONFIG[agent], options.submit === true)
   return new Promise((resolve) => {
     let settled = false
     const scanner = createDraftPasteReadyScanner(signal)
     let quietTimer: NodeJS.Timeout | null = null
+    let graceTimer: NodeJS.Timeout | null = null
     let hardTimer: NodeJS.Timeout | null = null
     let unsubscribe: (() => void) | null = null
     const finish = (value: string | null): void => {
@@ -112,6 +115,9 @@ export function waitForWorktreeStartupDraft(
       settled = true
       if (quietTimer) {
         clearTimeout(quietTimer)
+      }
+      if (graceTimer) {
+        clearTimeout(graceTimer)
       }
       if (hardTimer) {
         clearTimeout(hardTimer)
@@ -126,6 +132,12 @@ export function waitForWorktreeStartupDraft(
       const result = scanner.observe(data)
       if (result.ready) {
         return finish(ptyId)
+      }
+      if (result.readyAfterMs === null && graceTimer) {
+        clearTimeout(graceTimer)
+        graceTimer = null
+      } else if (typeof result.readyAfterMs === 'number' && !graceTimer) {
+        graceTimer = setTimeout(() => finish(ptyId), result.readyAfterMs)
       }
       if (result.armQuietTimer && !options.requireComposerMarker) {
         if (quietTimer) {

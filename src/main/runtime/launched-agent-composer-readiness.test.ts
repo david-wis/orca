@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { createDraftPasteReadyScanner } from '../../shared/draft-paste-ready-scanner'
+import {
+  createDraftPasteReadyScanner,
+  resolvePasteReadySignal
+} from '../../shared/draft-paste-ready-scanner'
 import type { TuiAgent } from '../../shared/tui-agent'
 import { TUI_AGENT_CONFIG } from '../../shared/tui-agent-config'
 import {
@@ -70,6 +73,7 @@ const EXPECTED_LANES: Record<TuiAgent, LaunchedAgentReadinessLane> = {
 const FIXTURES = join(__dirname, '__fixtures__')
 const OPENCODE_PLACEHOLDER = 'Ask anything'
 const AGENT_ROW = /\u00b7 \S/
+const BOX_BOTTOM_LEFT = '\u2579'
 
 const CITED_CAPTURES = Object.entries(TUI_AGENT_CONFIG).flatMap(([agent, row]) =>
   (row.composerReadyCaptures ?? []).map((capture) => [agent, capture] as const)
@@ -83,11 +87,11 @@ function readSignal(agent: string) {
   if (!isTuiAgent(agent)) {
     throw new Error(`${agent} is not a TuiAgent`)
   }
-  const signal = TUI_AGENT_CONFIG[agent].draftPasteReadySignal
-  if (!signal) {
+  if (!TUI_AGENT_CONFIG[agent].draftPasteReadySignal) {
     throw new Error(`${agent} cites composer-ready captures but has no draftPasteReadySignal`)
   }
-  return signal
+  // Worker start always presses Enter after its paste.
+  return resolvePasteReadySignal(TUI_AGENT_CONFIG[agent], true)
 }
 
 /** Index of the first read the scanner reports ready on, or -1. */
@@ -156,8 +160,10 @@ describe('every capture a row cites proves its input-box marker', () => {
         if (box !== -1 && boxRead === -1) {
           boxRead = read
         }
-        // The row under the box reads `<agent> · <model>`; a read can paint the separator first.
-        if (box !== -1 && frame.screenLines.slice(box + 1).some((line) => AGENT_ROW.test(line))) {
+        // The row inside the box's last line reads `<agent> · <model>`; a read can paint the
+        // separator and model before the agent.
+        const corner = frame.screenLines.findIndex((line) => line.includes(BOX_BOTTOM_LEFT))
+        if (box !== -1 && corner > box && AGENT_ROW.test(frame.screenLines[corner - 1])) {
           rowRead = read
           break
         }

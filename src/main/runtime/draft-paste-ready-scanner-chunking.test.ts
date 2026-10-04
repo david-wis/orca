@@ -4,6 +4,8 @@
  * in its recorded reads (where timed) and in seeded random chunkings, and each must turn ready on
  * the read holding the offset a plain string walk finds. A regression guard for grok, DSH and
  * ZCode (their markers are one char, so the seam fix cannot move them), and the proof for OpenCode.
+ * OpenCode's agent-row signal reads screen structure no string walk expresses, so its reference is
+ * the scanner fed one char at a time; the transcript suites prove where that lands.
  */
 
 import { readFileSync } from 'node:fs'
@@ -17,17 +19,17 @@ import type { GrokStartupTraceChunk } from '../../shared/__fixtures__/grok-start
 import { readRuntimeFixture, readTimedRuntimeFixture } from './agent-transcript-replay-test-harness'
 
 type Walk = { anchor: string; end: string; marker: string }
-type Walks = Walk | Walk[]
 
 const ALT_SCREEN: Walk = { anchor: '\x1b[?1049h', end: '\x1b[?1049l', marker: '' }
-const BOX_CURSOR: Walk = { anchor: '\x1b[?2004h', end: '\x1b[?2004l', marker: '\x1b[?25h' }
-// A signal with several walks is ready once all of them are.
-const WALKS: Partial<Record<DraftPasteReadySignal, Walks>> = {
-  'render-cursor-after-bracketed-paste': BOX_CURSOR,
+const WALKS: Partial<Record<DraftPasteReadySignal, Walk>> = {
+  'render-cursor-after-bracketed-paste': {
+    anchor: '\x1b[?2004h',
+    end: '\x1b[?2004l',
+    marker: '\x1b[?25h'
+  },
   'grok-composer-prompt': { ...ALT_SCREEN, marker: '❯' },
   'dsh-composer-prompt': { ...ALT_SCREEN, marker: '❯' },
-  'zcode-composer-prompt': { ...ALT_SCREEN, marker: '╭' },
-  'opencode-agent-row': [BOX_CURSOR, { ...ALT_SCREEN, marker: '\u00b7' }]
+  'zcode-composer-prompt': { ...ALT_SCREEN, marker: '╭' }
 }
 
 // Recorded zsh shape: the prompt enables bracketed paste and accept-line disables it before exec.
@@ -77,37 +79,28 @@ const CASES: Case[] = [
     data: readRuntimeFixture('zcode-composer-ready')
   },
   {
-    name: 'opencode (untimed pty transcript), cursor signal mimo-code still uses',
+    name: 'opencode (untimed pty transcript)',
     signal: 'render-cursor-after-bracketed-paste',
     data: readPtyTranscript('opencode.txt')
   },
-  {
-    name: 'opencode (untimed pty transcript)',
-    signal: 'opencode-agent-row',
-    data: readPtyTranscript('opencode.txt')
-  },
-  ...OPENCODE_TIMED.flatMap((name): Case[] => {
-    const { chunks } = readTimedRuntimeFixture(name)
-    return [
-      { name, signal: 'opencode-agent-row', data: chunks.join(''), reads: chunks },
-      {
-        name: `${name} behind a zsh launch`,
-        signal: 'opencode-agent-row',
-        data: ZSH_LAUNCH_PROLOGUE + chunks.join(''),
-        reads: [ZSH_LAUNCH_PROLOGUE, ...chunks]
-      }
-    ]
-  })
+  ...(['render-cursor-after-bracketed-paste', 'opencode-agent-row'] as const).flatMap((signal) =>
+    OPENCODE_TIMED.flatMap((name): Case[] => {
+      const { chunks } = readTimedRuntimeFixture(name)
+      return [
+        { name: `${name} (${signal})`, signal, data: chunks.join(''), reads: chunks },
+        {
+          name: `${name} behind a zsh launch (${signal})`,
+          signal,
+          data: ZSH_LAUNCH_PROLOGUE + chunks.join(''),
+          reads: [ZSH_LAUNCH_PROLOGUE, ...chunks]
+        }
+      ]
+    })
+  )
 ]
 
-/** End offset where every walk has seen its marker, or null when one never does. */
-function walkReadyEnd(data: string, walks: Walks): number | null {
-  const ends = (Array.isArray(walks) ? walks : [walks]).map((walk) => walkOne(data, walk))
-  return ends.some((end) => end === null) ? null : Math.max(...ends.map((end) => end ?? 0))
-}
-
 /** End offset of the first marker seen while the anchor is held, walking the whole string. */
-function walkOne(data: string, { anchor, end, marker }: Walk): number | null {
+function walkReadyEnd(data: string, { anchor, end, marker }: Walk): number | null {
   let cursor = 0
   for (;;) {
     const enter = data.indexOf(anchor, cursor)
@@ -180,10 +173,16 @@ function chunkings(testCase: Case): Map<string, string[]> {
 describe('draft-paste readiness does not depend on how the stream is chunked', () => {
   it.each(CASES.map((testCase) => [testCase.name, testCase] as const))('%s', (_, testCase) => {
     const walk = WALKS[testCase.signal]
+    const expected = walk
+      ? walkReadyEnd(testCase.data, walk)
+      : (scanReadyRead(
+          testCase.signal,
+          splitAt(testCase.data, () => 1)
+        )?.[1] ?? null)
     if (!walk) {
-      throw new Error(`no reference walk for ${testCase.signal}`)
+      expect(testCase.signal).toBe('opencode-agent-row')
+      expect(expected, 'every OpenCode capture paints its agent row').not.toBeNull()
     }
-    const expected = walkReadyEnd(testCase.data, walk)
     for (const [label, reads] of chunkings(testCase)) {
       const readyRead = scanReadyRead(testCase.signal, reads)
       if (expected === null) {
@@ -200,10 +199,18 @@ describe('draft-paste readiness does not depend on how the stream is chunked', (
   })
 
   it.each(OPENCODE_TIMED)('%s: a zsh launch in front moves nothing but the offset', (name) => {
-    const walk = WALKS['opencode-agent-row']!
+    const walk = WALKS['render-cursor-after-bracketed-paste']!
     const data = readTimedRuntimeFixture(name).chunks.join('')
     const alone = walkReadyEnd(data, walk)
     expect(alone).not.toBeNull()
     expect(walkReadyEnd(ZSH_LAUNCH_PROLOGUE + data, walk)).toBe(ZSH_LAUNCH_PROLOGUE.length + alone!)
+    const agentRowEnd = (stream: string): number | undefined =>
+      scanReadyRead(
+        'opencode-agent-row',
+        splitAt(stream, () => 1)
+      )?.[1]
+    expect(agentRowEnd(ZSH_LAUNCH_PROLOGUE + data)).toBe(
+      ZSH_LAUNCH_PROLOGUE.length + agentRowEnd(data)!
+    )
   })
 })

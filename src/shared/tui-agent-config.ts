@@ -91,9 +91,11 @@ const TUI_AGENT_CONFIG_SOURCE: Record<TuiAgent, TuiAgentConfigSource> = {
   opencode: {
     detectCmd: 'opencode',
     promptInjectionMode: 'flag-prompt',
+    // Why: opencode enables bracketed paste before its composer mounts; wait for the post-\x1b[?2004h show-cursor so paste lands.
+    draftPasteReadySignal: 'render-cursor-after-bracketed-paste',
     // Why: OpenCode 2 draws its input box before its agent list loads and drops an Enter sent
     // in between; the agent/model row under the box is the first moment it can submit.
-    draftPasteReadySignal: 'opencode-agent-row',
+    submitPasteReadySignal: 'opencode-agent-row',
     // Why 20s: measured on two Windows hosts (ConPTY dll backend, as pinned by
     // local-pty-utils), opencode does not enable bracketed paste until ~4.8s and its
     // composer is not ready until ~10s — so the 8s default expired first and the draft
@@ -107,14 +109,14 @@ const TUI_AGENT_CONFIG_SOURCE: Record<TuiAgent, TuiAgentConfigSource> = {
       'opencode-cmd-2-0-21-timed-warm-server'
     ]
   },
-  // Why: opencode2 installs as a separate binary and uses the same prompt flags and the same
-  // agent-row paste signal.
+  // Why: opencode2 installs as a separate binary and uses the same prompt flags and paste signals.
   opencode2: {
     detectCmd: 'opencode2',
     // The private server inherits this pane's hook endpoint and identity.
     launchCmd: 'opencode2 --standalone',
     promptInjectionMode: 'flag-prompt',
-    draftPasteReadySignal: 'opencode-agent-row',
+    draftPasteReadySignal: 'render-cursor-after-bracketed-paste',
+    submitPasteReadySignal: 'opencode-agent-row',
     draftPasteReadyTimeoutMs: 20_000,
     composerReadyCaptures: [
       'opencode-2-0-18-timed-boot-hidden-pane',
@@ -127,7 +129,7 @@ const TUI_AGENT_CONFIG_SOURCE: Record<TuiAgent, TuiAgentConfigSource> = {
   'mimo-code': {
     detectCmd: 'mimo',
     promptInjectionMode: 'flag-prompt',
-    // Why: mirrors OpenCode's earlier cursor-gated signal by parity; mimo's startup stream isn't separately validated.
+    // Why: mirrors opencode's cursor-gated signal by parity; mimo's startup stream isn't separately validated.
     draftPasteReadySignal: 'render-cursor-after-bracketed-paste'
   },
   pi: {

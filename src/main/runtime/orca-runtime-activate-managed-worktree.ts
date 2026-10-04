@@ -190,7 +190,7 @@ export class OrcaRuntimeWithActivateManagedWorktree extends OrcaRuntimeWithListM
       { ...this.getWorktreeStartupReadinessHost(), getPtyId: () => initialPtyId },
       handle,
       agent,
-      { timeoutMs, requireComposerMarker: true }
+      { timeoutMs, requireComposerMarker: true, submit: true }
     )
     if (!ptyId) {
       throw new Error('timeout')

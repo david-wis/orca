@@ -69,9 +69,6 @@ vi.mock('@/runtime/runtime-terminal-stream', () => ({
 
 const DECSET_BRACKETED_PASTE = '\x1b[?2004h'
 const SHOW_CURSOR = '\x1b[?25h'
-// OpenCode's box and cursor, then the agent/model row it paints once its agent list loads.
-const OPENCODE_BOX = `\x1b[?1049h${DECSET_BRACKETED_PASTE}${SHOW_CURSOR}`
-const OPENCODE_AGENT_ROW = 'Build \u00b7 Some Model'
 const CODEX_COMPOSER_PROMPT_RENDER = '\x1b[1m›\x1b[0m Ask Codex to do anything'
 const CODEX_DYNAMIC_COMPOSER_PROMPT_RENDER = '\x1b[?1049h\x1b[1m›\x1b[0m Implement {feature}'
 const ISSUE_URL = 'https://github.com/stablyai/orca/issues/123'
@@ -208,7 +205,7 @@ describe('pasteDraftWhenAgentReady', () => {
     )
   })
 
-  it('pastes into opencode once the agent row renders under its box, not on the box alone', async () => {
+  it('pastes into opencode as soon as show-cursor renders after bracketed paste is enabled', async () => {
     const promise = pasteDraftWhenAgentReady({
       tabId: 'tab-1',
       content: ISSUE_URL,
@@ -216,11 +213,11 @@ describe('pasteDraftWhenAgentReady', () => {
     })
     await flushMicrotasks()
 
-    testState.ptyObserver?.(OPENCODE_BOX)
+    testState.ptyObserver?.(DECSET_BRACKETED_PASTE)
     await flushMicrotasks()
     expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
 
-    testState.ptyObserver?.(OPENCODE_AGENT_ROW)
+    testState.ptyObserver?.(SHOW_CURSOR)
 
     await expect(promise).resolves.toBe(true)
     expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledWith(
@@ -239,7 +236,7 @@ describe('pasteDraftWhenAgentReady', () => {
     })
     await flushMicrotasks()
 
-    testState.ptyObserver?.(OPENCODE_BOX)
+    testState.ptyObserver?.(DECSET_BRACKETED_PASTE)
     await flushMicrotasks()
     for (let index = 0; index < 5; index += 1) {
       await vi.advanceTimersByTimeAsync(1499)
@@ -248,7 +245,7 @@ describe('pasteDraftWhenAgentReady', () => {
       expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
     }
 
-    testState.ptyObserver?.(OPENCODE_AGENT_ROW)
+    testState.ptyObserver?.(SHOW_CURSOR)
 
     await expect(promise).resolves.toBe(true)
     expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledWith(
@@ -262,7 +259,7 @@ describe('pasteDraftWhenAgentReady', () => {
   it('does not paste on the quiet window for opencode (it never arms one)', async () => {
     // Why: opencode is silent for ~1.5-2s between enabling bracketed paste and
     // mounting its composer. A quiet window would fire during that gap and paste
-    // before the composer exists (the original bug), so its readiness signal must
+    // before the composer exists (the original bug), so the cursor signal must
     // not arm one. With process inspection failing, delivery times out instead.
     testState.inspectRuntimeTerminalProcess.mockResolvedValue(null)
     const onTimeout = vi.fn()
@@ -291,32 +288,33 @@ describe('pasteDraftWhenAgentReady', () => {
     expect(onTimeout).toHaveBeenCalledTimes(1)
   })
 
-  it('reports a timeout instead of pasting blind when OpenCode never paints its agent row', async () => {
-    // Why: OpenCode drops an Enter until the row exists, so a blind paste would sit unsent in its
-    // box. The running process does not change that; the caller gets its timeout notice.
+  it('best-effort pastes for opencode at the hard timeout when its process is running', async () => {
+    // Why: with no quiet window, the hard-timeout process-ownership check is the
+    // backstop if show-cursor is somehow missed — same model as Codex.
     testState.inspectRuntimeTerminalProcess.mockResolvedValue({
       foregroundProcess: 'opencode',
       hasChildProcesses: false
     })
-    const onTimeout = vi.fn()
     const onUnconfirmedDelivery = vi.fn()
     const promise = pasteDraftWhenAgentReady({
       tabId: 'tab-1',
       content: ISSUE_URL,
       agent: 'opencode',
-      onTimeout,
       onUnconfirmedDelivery
     })
     await flushMicrotasks()
 
-    testState.ptyObserver?.(OPENCODE_BOX)
+    testState.ptyObserver?.(DECSET_BRACKETED_PASTE)
     await vi.advanceTimersByTimeAsync(20_000)
-    await flushMicrotasks(5)
 
-    await expect(promise).resolves.toBe(false)
-    expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
-    expect(onTimeout).toHaveBeenCalledTimes(1)
-    expect(onUnconfirmedDelivery).not.toHaveBeenCalled()
+    await expect(promise).resolves.toBe(true)
+    expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledWith(
+      {},
+      'pty-1',
+      PASTED_ISSUE_URL
+    )
+    // The composer was never observed; the caller must be able to hedge its success notice.
+    expect(onUnconfirmedDelivery).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the existing fallback budget for unrelated markerless agents', async () => {

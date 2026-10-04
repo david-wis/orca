@@ -4,10 +4,14 @@
  * so a wait that trusts a bare-name title has its answer before OpenCode draws anything.
  */
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createDraftPasteReadyScanner } from '../../shared/draft-paste-ready-scanner'
+import { OPENCODE_AGENT_ROW_GRACE_MS } from '../../shared/opencode-agent-row-scanner'
 import type { TuiAgent } from '../../shared/tui-agent'
 import { createTranscriptPane, TRANSCRIPT_PANE_PTY_ID } from './agent-transcript-pane-test-harness'
-import { readTimedRuntimeFixture } from './agent-transcript-replay-test-harness'
+import { readTimedRuntimeFixture, replayTranscript } from './agent-transcript-replay-test-harness'
 import { waitForLaunchedAgentComposer } from './launched-agent-composer-readiness'
 
 vi.mock('electron', () => ({
@@ -36,7 +40,8 @@ const RUNS: [string, TuiAgent][] = [
   ['opencode-2-0-14-timed-cold-standalone', 'opencode2']
 ]
 const OPENCODE_1_RUNS = RUNS.filter(([name]) => name.startsWith('opencode-1-'))
-const AGENT_ROW_SEPARATOR = '\u00b7'
+const AGENT_ROW = /\u00b7 \S/
+const BOX_BOTTOM_LEFT = '\u2579'
 
 /** The read that ends the synchronized update drawing OpenCode's input box. */
 function boxRead(chunks: string[]): number {
@@ -48,12 +53,20 @@ function boxRead(chunks: string[]): number {
   return chunks.findIndex((chunk) => (end += chunk.length) >= boxEnd)
 }
 
-/** The read that paints the separator in the agent/model row under the box. */
-function agentRowRead(chunks: string[]): number {
-  const data = chunks.join('')
-  const separator = data.indexOf(AGENT_ROW_SEPARATOR, data.indexOf('\x1b[?1049h'))
-  let end = 0
-  return chunks.findIndex((chunk) => (end += chunk.length) > separator)
+/** The first read whose screen shows `· <model>` on the box's last line, above its corner. */
+async function agentRowRead(name: string, chunks: string[]): Promise<number> {
+  const meta: { cols: number; rows: number } = JSON.parse(
+    readFileSync(join(__dirname, '__fixtures__', `${name}.meta.json`), 'utf8')
+  )
+  let read = 0
+  for await (const { screenLines } of replayTranscript(chunks, meta.cols, meta.rows)) {
+    const corner = screenLines.findIndex((line) => line.includes(BOX_BOTTOM_LEFT))
+    if (corner > 0 && AGENT_ROW.test(screenLines[corner - 1])) {
+      return read
+    }
+    read += 1
+  }
+  return -1
 }
 
 async function replay(name: string, agent: TuiAgent) {
@@ -67,13 +80,15 @@ async function replay(name: string, agent: TuiAgent) {
   })
   vi.useFakeTimers()
   runtime.onPtyData(TRANSCRIPT_PANE_PTY_ID, ZSH_LAUNCH, Date.now())
-  const settledAt: { composer: number | null; tuiIdle: number | null } = {
-    composer: null,
-    tuiIdle: null
-  }
+  const settledAt: { composer: number | null; composerMs: number | null; tuiIdle: number | null } =
+    { composer: null, composerMs: null, tuiIdle: null }
   let read = -1
+  const startedAt = Date.now()
   const composer = waitForLaunchedAgentComposer(runtime, handle, agent, 60_000)
-  void composer.then(() => (settledAt.composer ??= read))
+  void composer.then(() => {
+    settledAt.composer ??= read
+    settledAt.composerMs ??= Date.now() - startedAt
+  })
   const tuiIdle = runtime.waitForTerminal(handle, { condition: 'tui-idle', timeoutMs: 60_000 })
   void tuiIdle.then(
     () => (settledAt.tuiIdle ??= read),
@@ -88,7 +103,12 @@ async function replay(name: string, agent: TuiAgent) {
     runtime.onPtyData(TRANSCRIPT_PANE_PTY_ID, chunk, Date.now())
     await vi.advanceTimersByTimeAsync(0)
   }
-  return { settledAt, composer, boxRead: boxRead(chunks), agentRowRead: agentRowRead(chunks) }
+  return {
+    settledAt,
+    composer,
+    boxRead: boxRead(chunks),
+    agentRowRead: await agentRowRead(name, chunks)
+  }
 }
 
 describe('an OpenCode worker gets its task only once OpenCode can submit it', () => {
@@ -120,6 +140,22 @@ describe('an OpenCode worker gets its task only once OpenCode can submit it', ()
       'opencode2'
     )
     expect(settledAt.composer).toBeGreaterThan(boxRead)
+  })
+
+  it('takes the box after the grace in a pane too narrow for the agent row', async () => {
+    const name = 'opencode-2-0-21-timed-narrow-pane'
+    const { chunks, times, promptSentAtMs } = readTimedRuntimeFixture(name)
+    const cursor = createDraftPasteReadyScanner('render-cursor-after-bracketed-paste')
+    const boxCursorAt = times[chunks.findIndex((chunk) => cursor.observe(chunk).ready)]
+    const { settledAt, composer, agentRowRead } = await replay(name, 'opencode2')
+    expect(agentRowRead).toBe(-1)
+    await expect(composer).resolves.toMatchObject({ satisfied: true })
+    // Fake timers drop the recorded times' fraction of a millisecond.
+    expect(
+      Math.abs(settledAt.composerMs! - (boxCursorAt + OPENCODE_AGENT_ROW_GRACE_MS))
+    ).toBeLessThan(1)
+    // The recorder pasted at the grace and pressed Enter after it, and OpenCode took it.
+    expect(promptSentAtMs!).toBeGreaterThan(settledAt.composerMs!)
   })
 
   it.each(RUNS)(

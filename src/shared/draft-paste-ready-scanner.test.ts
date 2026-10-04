@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { createDraftPasteReadyScanner } from './draft-paste-ready-scanner'
+import { createDraftPasteReadyScanner, resolvePasteReadySignal } from './draft-paste-ready-scanner'
+import { OPENCODE_AGENT_ROW_GRACE_MS } from './opencode-agent-row-scanner'
+import { TUI_AGENT_CONFIG } from './tui-agent-config'
 
 const DECSET_BRACKETED_PASTE = '\x1b[?2004h'
 const DECRST_BRACKETED_PASTE = '\x1b[?2004l'
@@ -14,7 +16,7 @@ const GROK_ALT_SCREEN_LEAVE = '\x1b[?1049l\x1b[?25h'
 const GROK_COMPOSER_FRAME = '\x1b[38;2;80;80;88m│\x1b[38;2;200;200;200m❯ \x1b[0m'
 
 describe('createDraftPasteReadyScanner', () => {
-  describe('render-cursor-after-bracketed-paste (mimo-code)', () => {
+  describe('render-cursor-after-bracketed-paste (opencode / mimo-code)', () => {
     it('is ready when show-cursor renders after bracketed paste in one chunk', () => {
       const scanner = createDraftPasteReadyScanner('render-cursor-after-bracketed-paste')
       expect(scanner.observe(`${DECSET_BRACKETED_PASTE}${SHOW_CURSOR}`)).toEqual({
@@ -121,19 +123,49 @@ describe('createDraftPasteReadyScanner', () => {
   })
 
   describe('opencode-agent-row', () => {
-    // OpenCode's box, then the row under it once its agent list has loaded (shape from 2.0.21).
-    const BOX = `${ALT_SCREEN_ENTER}${DECSET_BRACKETED_PASTE}┃  Ask anything…${SHOW_CURSOR}`
-    const AGENT_ROW = '\x1b[29;47HBuild\x1b[0m\x1b[29;53H\u00b7\x1b[0m\x1b[29;55HSome Model'
+    // Frame shapes from the OpenCode 2.0.21 cold-start capture: the box with its bottom-left
+    // corner `╹` on row 25, then a later frame painting `<agent> · <model>` on row 24 above it.
+    const frame = (body: string): string =>
+      `\x1b[?2026h${HIDE_CURSOR}${body}\x1b[22;27H${SHOW_CURSOR}\x1b[?2026l`
+    const BOX = `${ALT_SCREEN_ENTER}${DECSET_BRACKETED_PASTE}${frame(
+      '\x1b[21;24H┃\x1b[22;24H┃\x1b[23;24H┃\x1b[24;24H┃\x1b[25;24H╹'
+    )}`
+    const AGENT_ROW = frame('\x1b[24;27HBuild\x1b[24;33H\u00b7\x1b[24;35HSome Model')
+    const GRACE = { ready: false, armQuietTimer: false, readyAfterMs: OPENCODE_AGENT_ROW_GRACE_MS }
 
-    it('is not ready on the input box and its cursor alone', () => {
+    it('is not ready on the input box and its cursor alone, and asks for the grace timer', () => {
       const scanner = createDraftPasteReadyScanner('opencode-agent-row')
-      expect(scanner.observe(BOX)).toEqual({ ready: false, armQuietTimer: false })
+      expect(scanner.observe(BOX)).toEqual(GRACE)
     })
 
-    it('is ready once the agent row paints its separator', () => {
+    it('is ready once the row directly above the box corner paints its separator', () => {
       const scanner = createDraftPasteReadyScanner('opencode-agent-row')
       scanner.observe(BOX)
-      expect(scanner.observe(AGENT_ROW)).toEqual({ ready: true, armQuietTimer: false })
+      expect(scanner.observe(AGENT_ROW)).toEqual({
+        ready: true,
+        armQuietTimer: false,
+        readyAfterMs: null
+      })
+    })
+
+    it('is ready when OpenCode 1 paints the row before the corner in the same frame', () => {
+      const scanner = createDraftPasteReadyScanner('opencode-agent-row')
+      const opencode1Box = frame('\x1b[23;27HBuild\x1b[23;33H\u00b7\x1b[24;24H╹')
+      expect(
+        scanner.observe(`${ALT_SCREEN_ENTER}${DECSET_BRACKETED_PASTE}${opencode1Box}`).ready
+      ).toBe(true)
+    })
+
+    it('ignores a separator in the footer path under the box', () => {
+      const scanner = createDraftPasteReadyScanner('opencode-agent-row')
+      scanner.observe(BOX)
+      expect(scanner.observe(frame('\x1b[26;24H~/col\u00b7lecció/work'))).toEqual(GRACE)
+    })
+
+    it('ignores a separator in a session tab title', () => {
+      const scanner = createDraftPasteReadyScanner('opencode-agent-row')
+      scanner.observe(BOX)
+      expect(scanner.observe(frame('\x1b[1;4Hx\x1b[1;5H\u00b7\x1b[1;6Hy'))).toEqual(GRACE)
     })
 
     it('ignores a separator a shell prompt draws before OpenCode enters the alternate screen', () => {
@@ -142,14 +174,50 @@ describe('createDraftPasteReadyScanner', () => {
         scanner.observe(
           `${DECSET_BRACKETED_PASTE}~ \u00b7 main % opencode${DECRST_BRACKETED_PASTE}`
         )
-      ).toEqual({ ready: false, armQuietTimer: false })
+      ).toEqual({ ready: false, armQuietTimer: false, readyAfterMs: null })
       expect(scanner.observe(BOX).ready).toBe(false)
     })
 
-    it('ignores a separator painted after OpenCode leaves the alternate screen', () => {
+    it('does not keep a row from an earlier alternate-screen session', () => {
       const scanner = createDraftPasteReadyScanner('opencode-agent-row')
-      scanner.observe(BOX)
-      expect(scanner.observe(`${ALT_SCREEN_LEAVE}~ \u00b7 main %`).ready).toBe(false)
+      expect(scanner.observe(BOX + AGENT_ROW).ready).toBe(true)
+      expect(scanner.observe(ALT_SCREEN_LEAVE).ready).toBe(false)
+      expect(scanner.observe(BOX)).toEqual(GRACE)
+    })
+
+    it('does not latch a part an earlier session established and then revoked', () => {
+      // The review probe's shapes: another alternate-screen app drew a separator and left; a shell
+      // showed its cursor under bracketed paste and turned it off.
+      const leftApp = createDraftPasteReadyScanner('opencode-agent-row')
+      leftApp.observe(`${ALT_SCREEN_ENTER}x \u00b7 y${ALT_SCREEN_LEAVE}`)
+      expect(leftApp.observe(BOX)).toEqual(GRACE)
+      const shell = createDraftPasteReadyScanner('opencode-agent-row')
+      shell.observe(`${DECSET_BRACKETED_PASTE}% ${SHOW_CURSOR}${DECRST_BRACKETED_PASTE}`)
+      expect(
+        shell.observe(`${ALT_SCREEN_ENTER}${DECSET_BRACKETED_PASTE}footer \u00b7 path`).ready
+      ).toBe(false)
+    })
+
+    it('withdraws readiness and the grace timer when bracketed paste is turned off', () => {
+      const scanner = createDraftPasteReadyScanner('opencode-agent-row')
+      expect(scanner.observe(BOX + AGENT_ROW).ready).toBe(true)
+      expect(scanner.observe(DECRST_BRACKETED_PASTE)).toEqual({
+        ready: false,
+        armQuietTimer: false,
+        readyAfterMs: null
+      })
+      const graced = createDraftPasteReadyScanner('opencode-agent-row')
+      expect(graced.observe(BOX).readyAfterMs).toBe(OPENCODE_AGENT_ROW_GRACE_MS)
+      expect(graced.observe(DECRST_BRACKETED_PASTE).readyAfterMs).toBeNull()
+    })
+
+    it('needs the box cursor shown while bracketed paste is held, not one a shell showed', () => {
+      const scanner = createDraftPasteReadyScanner('opencode-agent-row')
+      scanner.observe(`${DECSET_BRACKETED_PASTE}% ${SHOW_CURSOR}${DECRST_BRACKETED_PASTE}`)
+      const rowWithoutCursor = '\x1b[25;24H╹\x1b[24;33H\u00b7'
+      expect(
+        scanner.observe(`${ALT_SCREEN_ENTER}${DECSET_BRACKETED_PASTE}${rowWithoutCursor}`).ready
+      ).toBe(false)
     })
 
     it('never arms the quiet window', () => {
@@ -381,5 +449,22 @@ describe('createDraftPasteReadyScanner', () => {
         armQuietTimer: false
       })
     })
+  })
+})
+
+describe('resolvePasteReadySignal', () => {
+  it.each(['opencode', 'opencode2'] as const)(
+    '%s: only a paste that Enter follows waits for the agent row',
+    (agent) => {
+      expect(resolvePasteReadySignal(TUI_AGENT_CONFIG[agent], false)).toBe(
+        'render-cursor-after-bracketed-paste'
+      )
+      expect(resolvePasteReadySignal(TUI_AGENT_CONFIG[agent], true)).toBe('opencode-agent-row')
+    }
+  )
+
+  it('falls back to the draft signal, then the quiet window', () => {
+    expect(resolvePasteReadySignal(TUI_AGENT_CONFIG.codex, true)).toBe('codex-composer-prompt')
+    expect(resolvePasteReadySignal(null, true)).toBe('render-quiet-after-bracketed-paste')
   })
 })

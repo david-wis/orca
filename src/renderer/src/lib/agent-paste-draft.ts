@@ -1,8 +1,9 @@
 import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { TerminalInputKind } from '../../../shared/terminal-input-kind'
-import { TUI_AGENT_CONFIG, type DraftPasteReadySignal } from '../../../shared/tui-agent-config'
+import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 import { resolveDraftPasteReadyTimeoutMs } from '../../../shared/draft-paste-ready-timeout'
+import { resolvePasteReadySignal } from '../../../shared/draft-paste-ready-scanner'
 import { useAppStore } from '@/store'
 import {
   inspectRuntimeTerminalProcess,
@@ -42,10 +43,6 @@ export const POST_PASTE_SUBMIT_DELAY_MS = 50
 // composer budget on top would only delay that verdict. Keeping them distinct
 // also stops one slow step from spending the other's budget (STA-3367).
 const PTY_SPAWN_TIMEOUT_MS = 8000
-
-// Why: OpenCode drops an Enter until its agent row exists, so a blind paste would only leave the
-// draft sitting unsent in its input box; these signals report the timeout instead.
-const NO_BLIND_PASTE_SIGNALS: ReadonlySet<DraftPasteReadySignal> = new Set(['opencode-agent-row'])
 
 export function getSettingsForAgentTabRuntimeOwner(
   tabId: string
@@ -102,7 +99,7 @@ export async function pasteDraftWhenAgentReady(args: {
     return false
   }
 
-  const readySignal = agentConfig?.draftPasteReadySignal ?? 'render-quiet-after-bracketed-paste'
+  const readySignal = resolvePasteReadySignal(agentConfig, submit === true)
   const settings = getSettingsForAgentTabRuntimeOwner(tabId)
   const readinessTimeoutMs = resolveDraftPasteReadyTimeoutMs(agent, timeoutMs)
   const readiness = await waitForAgentDraftInputReadyOnTab({
@@ -123,17 +120,16 @@ export async function pasteDraftWhenAgentReady(args: {
     // this sidecar subscription attaches. If process/title inspection says the
     // launched agent owns the PTY, fall back to a best-effort paste instead of
     // silently dropping generated prompts.
-    const fallbackReady =
-      agentConfig && !NO_BLIND_PASTE_SIGNALS.has(readySignal)
-        ? await waitForAgentReady(tabId, agentConfig.expectedProcess, { timeoutMs: 1000 })
-        : { ready: false }
+    const fallbackReady = agentConfig
+      ? await waitForAgentReady(tabId, agentConfig.expectedProcess, { timeoutMs: 1000 })
+      : { ready: false }
     if (!fallbackReady.ready) {
       onTimeout?.()
       return false
     }
-    // Why: the process merely exists -- its composer was never observed. On Windows this is
-    // the ONLY path: ConPTY does not forward DECSET 2004, so no 2004-anchored ready signal
-    // can ever fire. Callers must be able to tell this blind write apart from a real delivery.
+    // Why: the process merely exists -- its composer was never observed (e.g. the readiness
+    // budget expired mid-startup, #22479). Callers must be able to tell this blind write apart
+    // from a real delivery.
     onUnconfirmedDelivery?.()
   }
 
@@ -177,14 +173,13 @@ export async function pasteDraftToAgentPtyWhenReady(args: {
   }
 
   const settings = getSettingsForAgentTabRuntimeOwner(tabId)
-  const readySignal = agentConfig?.draftPasteReadySignal ?? 'render-quiet-after-bracketed-paste'
+  const readySignal = resolvePasteReadySignal(agentConfig, submit === true)
   const budget = resolveDraftPasteReadyTimeoutMs(agent, timeoutMs)
   const ready = await waitForAgentDraftInputReady(ptyId, budget, readySignal, settings)
   if (!ready) {
-    const fallbackReady =
-      agentConfig && !NO_BLIND_PASTE_SIGNALS.has(readySignal)
-        ? await waitForExpectedAgentOnPty(ptyId, agentConfig.expectedProcess, 1000, settings)
-        : false
+    const fallbackReady = agentConfig
+      ? await waitForExpectedAgentOnPty(ptyId, agentConfig.expectedProcess, 1000, settings)
+      : false
     if (!fallbackReady) {
       onTimeout?.()
       return false

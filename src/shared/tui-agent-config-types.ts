@@ -42,9 +42,11 @@ export type TuiAgentConfig = {
   preflightTrust?: 'claude' | 'cursor' | 'copilot' | 'codex' | 'antigravity' | 'qoder' | 'qoder-cn'
   /** Agent-specific signal that the composer is ready for paste, stronger than the default quiet-render window. */
   draftPasteReadySignal?: DraftPasteReadySignal
+  /** Signal before a paste that Enter follows, for agents that show their composer before it can submit; defaults to `draftPasteReadySignal`. */
+  submitPasteReadySignal?: DraftPasteReadySignal
   /** Hard deadline for the agent's composer readiness signal. */
   draftPasteReadyTimeoutMs?: number
-  /** Captured boots proving the composer marker used for fresh worker dispatch. */
+  /** Captured boots proving the composer marker used for fresh worker dispatch (the submit signal where set). */
   composerReadyCaptures?: readonly string[]
   /** Delay before one extra blind submit Enter, for agents that render their composer before Enter is live (codex); a no-op if the first Enter landed. */
   submitRetryDelayMs?: number
