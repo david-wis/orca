@@ -52,9 +52,13 @@ export function registerOrcadRuntimeMaintenanceHandlers(options: {
   )
   ipcMain.handle(
     'runtimeEnvironments:recoverOrcad',
-    async (_event, args: { selector: string }): Promise<OrcadManagedRecoveryResult> => {
+    async (
+      _event,
+      args: { selector: string; acceptChangedState?: boolean }
+    ): Promise<OrcadManagedRecoveryResult> => {
       const result = await recoverManagedOrcadEnvironment(options.getUserDataPath(), {
-        selector: requiredString(args?.selector, 'Server')
+        selector: requiredString(args?.selector, 'Server'),
+        acceptChangedState: args?.acceptChangedState === true
       })
       if (result.outcome === 'recovered' && result.activeVersion) {
         await options.invalidateTransport(result.environment.id)

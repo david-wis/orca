@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type * as PreflightModule from '../ssh/ssh-target-orcad-preflight'
 
 const mocks = vi.hoisted(() => ({
   handle: vi.fn(),
@@ -24,7 +25,10 @@ vi.mock('../ssh/orcad-managed-runtime-context', () => ({
     }
   })
 }))
-vi.mock('../ssh/ssh-target-orcad-preflight', () => ({
+vi.mock('../ssh/ssh-target-orcad-preflight', async () => ({
+  isBlockingOrcadMigrationBlocker: (
+    await vi.importActual<typeof PreflightModule>('../ssh/ssh-target-orcad-preflight')
+  ).isBlockingOrcadMigrationBlocker,
   preflightOrcadMigrationExport: mocks.preflight
 }))
 vi.mock('../ssh/orcad-migration-manifest-export', () => ({

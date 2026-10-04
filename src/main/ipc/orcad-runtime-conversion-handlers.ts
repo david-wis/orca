@@ -11,7 +11,10 @@ import { assessOrcadMigrationTerminals } from '../ssh/orcad-migration-terminal-g
 import { convertSshTargetToManagedOrcad } from '../ssh/orcad-runtime-conversion'
 import { orcadMigrationRelayPtyLister } from '../ssh/orcad-migration-relay-pty-lister'
 import { conversionCollaborators } from '../ssh/orcad-runtime-conversion-wiring'
-import { preflightOrcadMigrationExport } from '../ssh/ssh-target-orcad-preflight'
+import {
+  isBlockingOrcadMigrationBlocker,
+  preflightOrcadMigrationExport
+} from '../ssh/ssh-target-orcad-preflight'
 import { requiredString } from './orcad-runtime-lifecycle-handlers'
 
 export function registerOrcadRuntimeConversionHandlers(getUserDataPath: () => string): void {
@@ -66,11 +69,7 @@ async function previewConversion(sshTargetId: string): Promise<OrcadManagedConve
       automations: dormant?.automations?.length ?? 0,
       workspaceSession: Boolean(dormant?.workspaceSession)
     },
-    blockers: preflight.blockers.filter(
-      (blocker) =>
-        blocker.category !== 'drainable-static-state' &&
-        blocker.code !== 'orcad_migration_saved_port_forwards'
-    ),
+    blockers: preflight.blockers.filter(isBlockingOrcadMigrationBlocker),
     terminals:
       terminals.verdict === 'exited'
         ? { verdict: 'exited' }
