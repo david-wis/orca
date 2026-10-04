@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
-import type { Editor } from '@tiptap/react'
+import { Editor } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'
 import { handleRichMarkdownLargeTextPaste } from './rich-markdown-large-text-paste'
@@ -13,19 +14,13 @@ vi.mock('@/i18n/i18n', () => ({
   translate: (_key: string, fallback: string) => fallback
 }))
 
-type InsertTransaction = { text: string }
+const editors: Editor[] = []
 
 function makePasteEvent(text: string, html = ''): ClipboardEvent {
-  const event = new Event('paste', {
-    bubbles: true,
-    cancelable: true
-  }) as ClipboardEvent
-  Object.defineProperty(event, 'clipboardData', {
-    value: {
-      getData: (type: string) => (type === 'text/plain' ? text : type === 'text/html' ? html : '')
-    }
-  })
-  return event
+  const clipboardData = new DataTransfer()
+  clipboardData.setData('text/plain', text)
+  clipboardData.setData('text/html', html)
+  return new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true })
 }
 
 function makeEditor(): {
@@ -34,39 +29,32 @@ function makeEditor(): {
   setDestroyed: (destroyed: boolean) => void
   setFocused: (focused: boolean) => void
 } {
-  const dom = document.createElement('div')
-  document.body.appendChild(dom)
+  const editor = new Editor({ extensions: [StarterKit], content: '<p></p>' })
+  document.body.append(editor.view.dom)
+  editor.view.dom.focus()
+  editors.push(editor)
   const chunks: string[] = []
-  let destroyed = false
-  let focused = true
-  const editor = {
-    get isDestroyed() {
-      return destroyed
-    },
-    get state() {
-      return {
-        tr: {
-          insertText: (text: string): InsertTransaction => ({ text })
-        }
-      }
-    },
-    view: {
-      dom,
-      hasFocus: () => focused,
-      dispatch: (transaction: InsertTransaction): void => {
-        chunks.push(transaction.text)
-      }
+  editor.on('transaction', ({ transaction }) => {
+    if (transaction.docChanged) {
+      chunks.push(transaction.doc.textContent.slice(transaction.before.textContent.length))
     }
-  } as unknown as Editor
-
+  })
   return {
     chunks,
     editor,
-    setDestroyed: (next) => {
-      destroyed = next
+    setDestroyed: (destroyed) => {
+      if (destroyed) {
+        editor.destroy()
+      }
     },
-    setFocused: (next) => {
-      focused = next
+    setFocused: (focused) => {
+      if (focused) {
+        editor.view.dom.focus()
+      } else {
+        const input = document.createElement('input')
+        document.body.append(input)
+        input.focus()
+      }
     }
   }
 }
@@ -78,7 +66,9 @@ async function flushPromises(count = 12): Promise<void> {
 }
 
 afterEach(() => {
+  editors.splice(0).forEach((editor) => editor.destroy())
   document.body.replaceChildren()
+  vi.restoreAllMocks()
   vi.clearAllMocks()
 })
 
@@ -202,9 +192,7 @@ describe('rich markdown large text paste', () => {
     expect(event.defaultPrevented).toBe(true)
     expect(chunks).toEqual([])
     expect(toast.error).toHaveBeenCalledWith('Paste is too large.')
-    expect(
-      JSON.stringify((toast.error as unknown as { mock: { calls: unknown[] } }).mock.calls)
-    ).not.toContain('hidden-token')
+    expect(JSON.stringify(vi.mocked(toast.error).mock.calls)).not.toContain('hidden-token')
   })
 
   it('rejects oversized rich-editor paste without logging or inserting content', async () => {
@@ -224,9 +212,7 @@ describe('rich markdown large text paste', () => {
     expect(event.defaultPrevented).toBe(true)
     expect(chunks).toEqual([])
     expect(toast.error).toHaveBeenCalledWith('Paste is too large.')
-    expect(
-      JSON.stringify((toast.error as unknown as { mock: { calls: unknown[] } }).mock.calls)
-    ).not.toContain(secret)
+    expect(JSON.stringify(vi.mocked(toast.error).mock.calls)).not.toContain(secret)
   })
 
   it('rejects oversized multibyte rich-editor paste before inserting content', async () => {
