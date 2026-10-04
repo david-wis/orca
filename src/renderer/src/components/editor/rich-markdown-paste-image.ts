@@ -5,6 +5,7 @@ import { useAppStore } from '@/store'
 import { settingsForRuntimeOwner } from '@/runtime/runtime-rpc-client'
 import { extractIpcErrorMessage } from './rich-markdown-ipc-error-message'
 import { insertRichMarkdownImageFromPath } from './rich-markdown-image-insert'
+import { captureRichMarkdownImageInsertionTarget } from './rich-markdown-image-insertion-target'
 
 export type RichMarkdownImagePasteArgs = {
   editor: Editor | null
@@ -37,11 +38,14 @@ export function handleRichMarkdownImagePaste({
 
   event.preventDefault()
   const insertPos = editor.state.selection.from
-  const targetDom = editor.view.dom
+  const target = captureRichMarkdownImageInsertionTarget(editor)
+  if (!target) {
+    return true
+  }
 
   void saveClipboardImageForMarkdownPaste(worktreeId, runtimeEnvironmentId)
     .then((sourcePath) => {
-      if (!sourcePath || !isRichMarkdownImagePasteTargetAvailable(editor, targetDom)) {
+      if (!sourcePath || !target.getRange()) {
         return
       }
       return insertRichMarkdownImageFromPath({
@@ -51,18 +55,15 @@ export function handleRichMarkdownImagePaste({
         worktreeId,
         runtimeEnvironmentId,
         insertPos,
-        canInsert: (candidate) => isRichMarkdownImagePasteTargetAvailable(candidate, targetDom)
+        getInsertionRange: target.getRange
       })
     })
     .catch((err) => {
       toast.error(extractIpcErrorMessage(err, 'Failed to insert image.'))
     })
+    .finally(target.dispose)
 
   return true
-}
-
-function isRichMarkdownImagePasteTargetAvailable(editor: Editor, targetDom: HTMLElement): boolean {
-  return !editor.isDestroyed && editor.view.dom === targetDom && targetDom.isConnected
 }
 
 async function saveClipboardImageForMarkdownPaste(

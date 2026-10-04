@@ -11,6 +11,10 @@ import { translate } from '@/i18n/i18n'
 import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
 import { extractIpcErrorMessage } from './rich-markdown-ipc-error-message'
 import { buildRichMarkdownImageInsertContent } from './rich-markdown-image-insert-content'
+import {
+  richMarkdownImageInsertionKey,
+  type RichMarkdownImageInsertionRange
+} from './rich-markdown-image-insertion-target'
 
 export type RichMarkdownImageInsertArgs = {
   editor: Editor
@@ -19,6 +23,7 @@ export type RichMarkdownImageInsertArgs = {
   worktreeId: string | null
   runtimeEnvironmentId?: string | null
   insertPos: number
+  getInsertionRange?: () => RichMarkdownImageInsertionRange | null
   canInsert?: (editor: Editor) => boolean
 }
 
@@ -29,6 +34,7 @@ export async function insertRichMarkdownImageFromPath({
   worktreeId,
   runtimeEnvironmentId,
   insertPos,
+  getInsertionRange,
   canInsert
 }: RichMarkdownImageInsertArgs): Promise<void> {
   try {
@@ -84,16 +90,37 @@ export async function insertRichMarkdownImageFromPath({
     if (canInsert && !canInsert(editor)) {
       return
     }
+    const range: RichMarkdownImageInsertionRange | null = getInsertionRange
+      ? getInsertionRange()
+      : { from: insertPos, to: insertPos }
+    if (!range) {
+      return
+    }
 
     const imageSrc = encodeMarkdownImageBasename(imported.destPath)
-    const inserted = editor
-      .chain()
-      .focus()
-      .insertContentAt(
-        insertPos,
-        buildRichMarkdownImageInsertContent(editor, insertPos, { src: imageSrc })
-      )
-      .run()
+    const selection = editor.state.selection
+    const cellSelection = range.cellSelection
+    const selectionStillAtTarget = cellSelection
+      ? selection.eq(cellSelection)
+      : selection.from === range.from && selection.to === range.to
+    const chain = cellSelection
+      ? editor.chain().command(({ tr }) => {
+          const liveSelection = tr.selection
+          cellSelection.replaceWith(tr, editor.schema.nodes.image.create({ src: imageSrc }))
+          if (!selectionStillAtTarget) {
+            tr.setSelection(liveSelection.map(tr.doc, tr.mapping))
+          }
+          return true
+        })
+      : (getInsertionRange ? editor.chain() : editor.chain().focus()).insertContentAt(
+          range.from === range.to ? range.from : range,
+          buildRichMarkdownImageInsertContent(editor, range.from, { src: imageSrc }),
+          { updateSelection: !getInsertionRange || selectionStillAtTarget }
+        )
+    if (range.requestOrder !== undefined) {
+      chain.setMeta(richMarkdownImageInsertionKey, range.requestOrder)
+    }
+    const inserted = chain.run()
     if (!inserted) {
       toast.error(
         translate('auto.components.editor.useLocalImagePick.175cb8b8ce', 'Failed to insert image.')

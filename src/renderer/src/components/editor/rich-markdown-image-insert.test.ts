@@ -139,12 +139,16 @@ describe('insertRichMarkdownImageFromPath', () => {
       insertPos: 4
     })
 
-    expect(insertContentAt).toHaveBeenCalledWith(4, {
-      type: 'image',
-      attrs: {
-        src: 'Screenshot%202026-06-22%20at%203.37.19%20PM%20copy.png'
-      }
-    })
+    expect(insertContentAt).toHaveBeenCalledWith(
+      4,
+      {
+        type: 'image',
+        attrs: {
+          src: 'Screenshot%202026-06-22%20at%203.37.19%20PM%20copy.png'
+        }
+      },
+      { updateSelection: true }
+    )
   })
 
   it('skips editor mutation when the caller rejects the stale target after import', async () => {
