@@ -1,6 +1,7 @@
 import type * as Monaco from 'monaco-editor'
 import type { IRawGrammar } from 'vscode-textmate'
 import { registerTextMateLanguage } from './textmate-language-registration'
+import { haskellFunctionThemeColors, mapHaskellTokenScopes } from './haskell-token-scopes'
 
 type MonacoModule = typeof Monaco
 
@@ -41,6 +42,19 @@ export async function loadHaskellTextMateGrammar(scopeName: string): Promise<IRa
 }
 
 export function registerHaskellLanguage(monaco: MonacoModule): void {
+  if (monaco.languages.getLanguages().some(({ id }) => id === HASKELL_LANGUAGE_ID)) {
+    return
+  }
+  for (const base of ['vs', 'vs-dark'] as const) {
+    monaco.editor.defineTheme(base, {
+      base,
+      inherit: true,
+      rules: [
+        { token: 'entity.name.function.haskell', foreground: haskellFunctionThemeColors[base] }
+      ],
+      colors: {}
+    })
+  }
   registerTextMateLanguage(monaco, {
     language: {
       id: HASKELL_LANGUAGE_ID,
@@ -49,6 +63,7 @@ export function registerHaskellLanguage(monaco: MonacoModule): void {
     },
     configuration: haskellLanguageConfiguration,
     scopeName: HASKELL_TEXTMATE_SCOPE,
-    loadGrammar: loadHaskellTextMateGrammar
+    loadGrammar: loadHaskellTextMateGrammar,
+    mapTokenScopes: mapHaskellTokenScopes
   })
 }

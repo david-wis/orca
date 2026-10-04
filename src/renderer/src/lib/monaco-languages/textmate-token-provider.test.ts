@@ -6,6 +6,7 @@ import type { IOnigLib, IRawGrammar } from 'vscode-textmate'
 import nimGrammar from './textmate-grammars/nim.tmLanguage.json'
 import { loadTypstTextMateGrammar } from './register-typst'
 import { HASKELL_TEXTMATE_SCOPE, loadHaskellTextMateGrammar } from './register-haskell'
+import { mapHaskellTokenScopes } from './haskell-token-scopes'
 import { createTextMateTokensProvider } from './textmate-token-provider'
 
 const require = createRequire(import.meta.url)
@@ -32,15 +33,27 @@ describe('createTextMateTokensProvider', () => {
     const provider = await createTextMateTokensProvider({
       scopeName: HASKELL_TEXTMATE_SCOPE,
       loadGrammar: loadHaskellTextMateGrammar,
+      mapTokenScopes: mapHaskellTokenScopes,
       loadOniguruma: loadNodeOniguruma
     })
     const scopesOf = (line: string) =>
       provider.tokenize(line, provider.getInitialState()).tokens.map((token) => token.scopes)
 
     expect(scopesOf('module Main where').some((scope) => scope.startsWith('keyword'))).toBe(true)
-    expect(scopesOf('count :: Int -> Int').some((scope) => scope.includes('type'))).toBe(true)
-    expect(scopesOf('count x = x + 42').some((scope) => scope.startsWith('constant.numeric'))).toBe(
-      true
+    expect(scopesOf('count :: Int -> Int')).toEqual(
+      expect.arrayContaining([
+        'entity.name.function.haskell',
+        'keyword.haskell',
+        'operator.haskell'
+      ])
+    )
+    expect(scopesOf('count x = x + 42')).toContain('number.haskell')
+    expect(scopesOf('data Arbol a b = Hoja b | Nodo a (Arbol a b) (Arbol a b)')).toEqual(
+      expect.arrayContaining([
+        'keyword.haskell',
+        'variable.parameter.haskell',
+        'identifier.haskell'
+      ])
     )
     expect(scopesOf('message = "hello"').some((scope) => scope.startsWith('string'))).toBe(true)
     expect(scopesOf("letter = 'a'").some((scope) => scope.startsWith('string'))).toBe(true)
@@ -52,6 +65,7 @@ describe('createTextMateTokensProvider', () => {
     const provider = await createTextMateTokensProvider({
       scopeName: HASKELL_TEXTMATE_SCOPE,
       loadGrammar: loadHaskellTextMateGrammar,
+      mapTokenScopes: mapHaskellTokenScopes,
       loadOniguruma: loadNodeOniguruma
     })
     let state = provider.getInitialState()
