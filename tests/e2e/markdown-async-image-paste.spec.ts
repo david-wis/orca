@@ -218,11 +218,33 @@ test('image paste reports cancellation when the selected target changes before i
   })
   await expect(editor.locator('p').first()).toHaveText('hello changed')
   await expect(editor.locator('img:not(.ProseMirror-separator)')).toHaveCount(0)
-  await expect(
-    orcaPage.getByText('Image insertion canceled because the destination changed. Try again.', {
-      exact: true
-    })
-  ).toBeVisible()
+  const cancellationMessage = orcaPage.getByText(
+    'Image insertion canceled because the destination changed. Try again.',
+    { exact: true }
+  )
+  await expect(cancellationMessage).toBeVisible()
+  await expect
+    .poll(() =>
+      cancellationMessage.evaluate((element) => {
+        const toast = element.closest('[data-sonner-toast]')
+        if (!toast) {
+          return false
+        }
+        const rect = toast.getBoundingClientRect()
+        return (
+          toast.getAttribute('data-mounted') === 'true' &&
+          getComputedStyle(toast).opacity === '1' &&
+          rect.top >= 0 &&
+          rect.left >= 0 &&
+          rect.bottom <= window.innerHeight &&
+          rect.right <= window.innerWidth &&
+          !toast
+            .getAnimations()
+            .some((animation) => animation.pending || animation.playState === 'running')
+        )
+      })
+    )
+    .toBe(true)
   const screenshot = testInfo.outputPath('image-cancellation-feedback.png')
   await orcaPage.screenshot({ path: screenshot })
   await testInfo.attach('image-cancellation-feedback', {
