@@ -11,6 +11,7 @@ import { translate } from '@/i18n/i18n'
 import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
 import { extractIpcErrorMessage } from './rich-markdown-ipc-error-message'
 import { buildRichMarkdownImageInsertContent } from './rich-markdown-image-insert-content'
+import { showRichMarkdownImageInsertionCanceled } from './rich-markdown-image-insertion-feedback'
 import {
   richMarkdownImageInsertionKey,
   type RichMarkdownImageInsertionRange
@@ -88,12 +89,14 @@ export async function insertRichMarkdownImageFromPath({
     }
 
     if (canInsert && !canInsert(editor)) {
+      showRichMarkdownImageInsertionCanceled(true)
       return
     }
     const range: RichMarkdownImageInsertionRange | null = getInsertionRange
       ? getInsertionRange()
       : { from: insertPos, to: insertPos }
     if (!range) {
+      showRichMarkdownImageInsertionCanceled(true)
       return
     }
 

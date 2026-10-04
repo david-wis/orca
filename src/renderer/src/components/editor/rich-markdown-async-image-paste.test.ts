@@ -3,6 +3,7 @@
 import { Editor } from '@tiptap/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { importExternalPathsToRuntime } from '@/runtime/runtime-file-client'
+import { toast } from 'sonner'
 import { createRichMarkdownExtensions } from './rich-markdown-extensions'
 import { createRichMarkdownEditorCodec } from './rich-markdown-source-transport'
 import { handleRichMarkdownImagePaste } from './rich-markdown-paste-image'
@@ -21,7 +22,7 @@ vi.mock('@/store', () => ({
 vi.mock('@/runtime/runtime-rpc-client', () => ({
   settingsForRuntimeOwner: vi.fn((settings) => settings)
 }))
-vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), info: vi.fn() } }))
 
 type ImportResult = Awaited<ReturnType<typeof importExternalPathsToRuntime>>
 const editors: Editor[] = []
@@ -92,6 +93,55 @@ afterEach(() => {
 })
 
 describe('rich Markdown asynchronous image paste', () => {
+  it.each(['saving', 'importing'])(
+    'reports cancellation once when the selected target changes during %s',
+    async (phase) => {
+      const editor = richEditor()
+      editor.commands.setTextSelection({ from: 7, to: 12 })
+      let completeSave: (path: string) => void = () => {}
+      if (phase === 'saving') {
+        vi.mocked(window.api.ui.saveClipboardImageAsTempFile).mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              completeSave = resolve
+            })
+        )
+      }
+      const pending = pendingImport()
+      vi.mocked(importExternalPathsToRuntime).mockReturnValue(pending.promise)
+      pasteImage(editor)
+      await flushPromises()
+      editor.view.dispatch(editor.state.tr.delete(7, 12))
+      if (phase === 'saving') {
+        completeSave('/tmp/image.png')
+      } else {
+        pending.resolve(imported())
+      }
+      await flushPromises()
+      expect(editor.getMarkdown()).toBe('hello ')
+      expect(toast.info).toHaveBeenCalledExactlyOnceWith(
+        phase === 'saving'
+          ? 'Image insertion canceled because the destination changed. Try again.'
+          : 'Image insertion canceled because the destination changed. The imported file was kept.'
+      )
+      expect(toast.error).not.toHaveBeenCalled()
+      if (phase === 'saving') {
+        expect(importExternalPathsToRuntime).not.toHaveBeenCalled()
+      }
+    }
+  )
+
+  it('leaves an empty clipboard result quiet', async () => {
+    const editor = richEditor()
+    vi.mocked(window.api.ui.saveClipboardImageAsTempFile).mockResolvedValue(null)
+    pasteImage(editor)
+    await flushPromises()
+    expect(editor.getMarkdown()).toBe('hello world')
+    expect(importExternalPathsToRuntime).not.toHaveBeenCalled()
+    expect(toast.info).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
   it.each([false, true])('replaces the complete selected text, reversed=%s', async (reversed) => {
     const editor = richEditor()
     editor.commands.setTextSelection(reversed ? { from: 12, to: 7 } : { from: 7, to: 12 })

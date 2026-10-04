@@ -29,7 +29,7 @@ vi.mock('@/runtime/runtime-rpc-client', () => ({
 }))
 
 vi.mock('sonner', () => ({
-  toast: { error: vi.fn() }
+  toast: { error: vi.fn(), info: vi.fn() }
 }))
 
 const openEditors: Editor[] = []
@@ -165,5 +165,8 @@ describe('insertRichMarkdownImageFromPath', () => {
 
     expect(chain).not.toHaveBeenCalled()
     expect(toast.error).not.toHaveBeenCalled()
+    expect(toast.info).toHaveBeenCalledExactlyOnceWith(
+      'Image insertion canceled because the destination changed. The imported file was kept.'
+    )
   })
 })

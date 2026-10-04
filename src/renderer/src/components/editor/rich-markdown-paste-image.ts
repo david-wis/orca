@@ -6,6 +6,7 @@ import { settingsForRuntimeOwner } from '@/runtime/runtime-rpc-client'
 import { extractIpcErrorMessage } from './rich-markdown-ipc-error-message'
 import { insertRichMarkdownImageFromPath } from './rich-markdown-image-insert'
 import { captureRichMarkdownImageInsertionTarget } from './rich-markdown-image-insertion-target'
+import { showRichMarkdownImageInsertionCanceled } from './rich-markdown-image-insertion-feedback'
 
 export type RichMarkdownImagePasteArgs = {
   editor: Editor | null
@@ -45,7 +46,11 @@ export function handleRichMarkdownImagePaste({
 
   void saveClipboardImageForMarkdownPaste(worktreeId, runtimeEnvironmentId)
     .then((sourcePath) => {
-      if (!sourcePath || !target.getRange()) {
+      if (!sourcePath) {
+        return
+      }
+      if (!target.getRange()) {
+        showRichMarkdownImageInsertionCanceled()
         return
       }
       return insertRichMarkdownImageFromPath({

@@ -3,6 +3,7 @@ import type { Editor } from '@tiptap/react'
 import { toast } from 'sonner'
 import { insertRichMarkdownImageFromPath } from './rich-markdown-image-insert'
 import { extractIpcErrorMessage } from './rich-markdown-ipc-error-message'
+import { showRichMarkdownImageInsertionCanceled } from './rich-markdown-image-insertion-feedback'
 import {
   captureRichMarkdownImageInsertionTarget,
   type RichMarkdownImageInsertionTarget
@@ -35,7 +36,11 @@ export function useLocalImagePick(
     pendingTargetsRef.current.add(target)
     try {
       const srcPath = await window.api.shell.pickImage()
-      if (!srcPath || !target.getRange()) {
+      if (!srcPath) {
+        return
+      }
+      if (!target.getRange()) {
+        showRichMarkdownImageInsertionCanceled()
         return
       }
       await insertRichMarkdownImageFromPath({

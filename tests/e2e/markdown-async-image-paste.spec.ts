@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import type { Editor } from '@tiptap/core'
 import type { Locator } from '@stablyai/playwright-test'
 import { expect, test } from './helpers/orca-app'
 import {
@@ -13,35 +14,62 @@ import {
 const PNG =
   'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAYUlEQVR4nO3PIREAIBAAMFqhMWgyUYMun4QQaBQZEO92twIrZ/RUde1URUBAQEBAQEBAQEBAQEBAQEBAQEBAQEDgO9BiprrRUgkICAgICAgICAgICAgICAgICAgICAgIfHuebLmH1pKnMwAAAABJRU5ErkJggg=='
 
+type RichMarkdownImageEditorElement = HTMLElement & { editor?: Editor }
+
+declare global {
+  var __markdownImagePasteRelease: (() => void) | undefined
+}
+
 async function selectWorld(editor: Locator): Promise<void> {
   await editor.evaluate((element) => {
-    const instance: unknown = Reflect.get(element, 'editor')
-    if (!instance || typeof instance !== 'object') {
+    const editorElement =
+      document.querySelector<RichMarkdownImageEditorElement>('.rich-markdown-editor')
+    if (!editorElement || editorElement !== element || !editorElement.editor) {
       throw new Error('Markdown editor unavailable')
     }
-    const commands: unknown = Reflect.get(instance, 'commands')
-    const select: unknown =
-      commands && typeof commands === 'object' ? Reflect.get(commands, 'setTextSelection') : null
-    if (typeof select !== 'function') {
-      throw new Error('Markdown selection command unavailable')
-    }
-    element.focus()
-    Reflect.apply(select, commands, [{ from: 7, to: 12 }])
+    editorElement.focus()
+    editorElement.editor.commands.setTextSelection({ from: 7, to: 12 })
   })
 }
 
-async function pasteImage(editor: Locator): Promise<void> {
-  await editor.evaluate((element, png) => {
+async function pasteImage(editor: Locator) {
+  return editor.evaluate((element, png) => {
+    const editorElement =
+      document.querySelector<RichMarkdownImageEditorElement>('.rich-markdown-editor')
+    if (!editorElement || editorElement !== element || !editorElement.editor) {
+      throw new Error('Markdown editor unavailable')
+    }
+    const instance = editorElement.editor
+    const readSelection = () => ({
+      from: instance.state.selection.from,
+      to: instance.state.selection.to,
+      selectedText: instance.state.doc.textBetween(
+        instance.state.selection.from,
+        instance.state.selection.to
+      )
+    })
+    const priorSelection = readSelection()
+    // Establish the selection in the paste turn, after initial focus and screenshot work.
+    editorElement.focus()
+    instance.commands.setTextSelection({ from: 7, to: 12 })
     const data = new DataTransfer()
     const bytes = Uint8Array.from(atob(png), (character) => character.charCodeAt(0))
     data.items.add(new File([bytes], 'image.png', { type: 'image/png' }))
-    element.dispatchEvent(
-      new ClipboardEvent('paste', {
-        bubbles: true,
-        cancelable: true,
-        clipboardData: data
-      })
-    )
+    const event = new ClipboardEvent('paste', {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: data
+    })
+    const before = readSelection()
+    const domSelection = window.getSelection()?.toString()
+    element.dispatchEvent(event)
+    return {
+      priorSelection,
+      before,
+      after: readSelection(),
+      domSelection,
+      handled: event.defaultPrevented
+    }
   }, PNG)
 }
 
@@ -77,16 +105,21 @@ test('image paste replaces its selection after editing during clipboard import',
       'clipboard:saveImageAsTempFile',
       () =>
         new Promise<string>((resolve) => {
-          Reflect.set(globalThis, '__markdownImagePasteRelease', () => resolve(imagePath))
+          globalThis.__markdownImagePasteRelease = () => resolve(imagePath)
         })
     )
   }, imagePath)
-  await pasteImage(editor)
+  const pasteSelection = await pasteImage(editor)
+  await testInfo.attach('selection-at-image-paste', {
+    body: Buffer.from(JSON.stringify(pasteSelection, null, 2)),
+    contentType: 'application/json'
+  })
+  expect(pasteSelection.before).toEqual({ from: 7, to: 12, selectedText: 'world' })
+  expect(pasteSelection.after).toEqual(pasteSelection.before)
+  expect(pasteSelection.handled).toBe(true)
   await expect
     .poll(() =>
-      electronApp.evaluate(
-        () => typeof Reflect.get(globalThis, '__markdownImagePasteRelease') === 'function'
-      )
+      electronApp.evaluate(() => typeof globalThis.__markdownImagePasteRelease === 'function')
     )
     .toBe(true)
 
@@ -98,12 +131,12 @@ test('image paste replaces its selection after editing during clipboard import',
   await orcaPage.keyboard.type('prefix ')
   await expect(editor.locator('p').first()).toHaveText('prefix hello world')
   await electronApp.evaluate(() => {
-    const release: unknown = Reflect.get(globalThis, '__markdownImagePasteRelease')
+    const release = globalThis.__markdownImagePasteRelease
     if (typeof release !== 'function') {
       throw new Error('Clipboard import not pending')
     }
     release()
-    Reflect.deleteProperty(globalThis, '__markdownImagePasteRelease')
+    globalThis.__markdownImagePasteRelease = undefined
   })
   const image = editor.locator('img:not(.ProseMirror-separator)')
   await expect(image).toHaveCount(1)

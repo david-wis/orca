@@ -19,7 +19,7 @@ vi.mock('@/store', () => ({
 vi.mock('@/runtime/runtime-rpc-client', () => ({
   settingsForRuntimeOwner: vi.fn((settings) => settings)
 }))
-vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), info: vi.fn() } }))
 
 type ImportResult = Awaited<ReturnType<typeof importExternalPathsToRuntime>>
 type PickerContext = {
@@ -147,6 +147,9 @@ describe('local image picker pending insertion', () => {
       await request
       expect(importExternalPathsToRuntime).not.toHaveBeenCalled()
       expect(editor.getMarkdown()).toBe('hello world')
+      expect(toast.info).toHaveBeenCalledExactlyOnceWith(
+        'Image insertion canceled because the destination changed. Try again.'
+      )
       unmount()
     }
   )
@@ -177,6 +180,9 @@ describe('local image picker pending insertion', () => {
     })
     await request
     expect(editor.getMarkdown()).toBe('hello world')
+    expect(toast.info).toHaveBeenCalledExactlyOnceWith(
+      'Image insertion canceled because the destination changed. The imported file was kept.'
+    )
     unmount()
   })
 
@@ -211,6 +217,7 @@ describe('local image picker pending insertion', () => {
       } else {
         expect(toast.error).not.toHaveBeenCalled()
       }
+      expect(toast.info).not.toHaveBeenCalled()
       unmount()
     }
   )
