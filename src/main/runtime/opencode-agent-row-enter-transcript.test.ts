@@ -1,53 +1,63 @@
 /**
- * Proof that the agent-row signal is the moment OpenCode 2 can submit. Both captures are cold
- * `--standalone` starts launched four at a time; each pasted the same brief and pressed Enter
- * (promptSentAtMs) — one once the agent row was painted, one at the box's show-cursor before it.
+ * Proof that the agent-row signal is the moment OpenCode 2 can submit, from two natural cold
+ * `--standalone` starts that replayed Orca's worker-start timing (paste at readiness, Enter 500 ms
+ * plus paste time later, at promptSentAtMs): one pasted on the agent row, one on the box's cursor
+ * while a loaded machine kept the agent list from arriving.
  */
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createDraftPasteReadyScanner } from '../../shared/draft-paste-ready-scanner'
+import type { DraftPasteReadySignal } from '../../shared/tui-agent-config'
 import { TUI_AGENT_CONFIG } from '../../shared/tui-agent-config'
 import { readTimedRuntimeFixture, replayTranscript } from './agent-transcript-replay-test-harness'
 
 const HELD_PASTE = '[Pasted ~'
-const BRIEF_TASK_LINE = 'Task: reply with the single word'
+const AGENT_ROW_SIGNAL = TUI_AGENT_CONFIG.opencode2.draftPasteReadySignal!
+// The box's show-cursor, the rule OpenCode used before the agent-row signal.
+const BOX_CURSOR_SIGNAL: DraftPasteReadySignal = 'render-cursor-after-bracketed-paste'
 
-async function replayEnter(name: string) {
-  const fixture = readTimedRuntimeFixture(name)
+function readyAtMs(name: string, signal: DraftPasteReadySignal): number {
+  const { chunks, times } = readTimedRuntimeFixture(name)
+  const scanner = createDraftPasteReadyScanner(signal)
+  return times[chunks.findIndex((chunk) => scanner.observe(chunk).ready)]
+}
+
+async function finalScreen(name: string): Promise<string> {
   const meta: { cols: number; rows: number } = JSON.parse(
     readFileSync(join(__dirname, '__fixtures__', `${name}.meta.json`), 'utf8')
   )
-  const scanner = createDraftPasteReadyScanner(TUI_AGENT_CONFIG.opencode2.draftPasteReadySignal!)
-  const readyRead = fixture.chunks.findIndex((chunk) => scanner.observe(chunk).ready)
   let lastScreen: string[] = []
-  for await (const frame of replayTranscript(fixture.chunks, meta.cols, meta.rows)) {
+  for await (const frame of replayTranscript(
+    readTimedRuntimeFixture(name).chunks,
+    meta.cols,
+    meta.rows
+  )) {
     lastScreen = frame.screenLines
   }
-  return {
-    readyAtMs: fixture.times[readyRead],
-    enterAtMs: fixture.promptSentAtMs!,
-    lastScreen: lastScreen.join('\n')
-  }
+  return lastScreen.join('\n')
 }
 
-describe('an Enter OpenCode 2 receives after the agent-row signal submits', () => {
-  it('submits the brief when Enter follows the signal', async () => {
-    const { readyAtMs, enterAtMs, lastScreen } = await replayEnter(
-      'opencode-2-0-21-timed-enter-at-agent-row'
-    )
-    expect(readyAtMs).toBeLessThanOrEqual(enterAtMs)
-    expect(lastScreen).not.toContain(HELD_PASTE)
-    expect(lastScreen).toContain(BRIEF_TASK_LINE)
+describe('OpenCode 2 submits an Enter sent after the agent row and drops one sent before it', () => {
+  it('submits the brief when Orca pastes on the agent row', async () => {
+    const name = 'opencode-2-0-21-timed-enter-after-agent-row'
+    const { promptSentAtMs } = readTimedRuntimeFixture(name)
+    expect(readyAtMs(name, AGENT_ROW_SIGNAL)).toBeLessThan(promptSentAtMs!)
+    const screen = await finalScreen(name)
+    expect(screen).not.toContain(HELD_PASTE)
+    expect(screen).toContain('Task: reply with the single word')
   })
 
-  it('leaves the brief in the composer when Enter came at the box, before the signal', async () => {
-    const { readyAtMs, enterAtMs, lastScreen } = await replayEnter(
-      'opencode-2-0-21-timed-enter-at-box'
-    )
-    expect(enterAtMs).toBeLessThan(readyAtMs)
-    expect(lastScreen).toContain(HELD_PASTE)
-    expect(lastScreen).not.toContain(BRIEF_TASK_LINE)
+  it('drops the Enter of a brief pasted on the box cursor while the agent list is late', async () => {
+    const name = 'opencode-2-0-21-timed-natural-load-enter-dropped'
+    const { promptSentAtMs } = readTimedRuntimeFixture(name)
+    const boxCursorAt = readyAtMs(name, BOX_CURSOR_SIGNAL)
+    const agentRowAt = readyAtMs(name, AGENT_ROW_SIGNAL)
+    // The old rule fired over half a second before the row, so Orca's Enter landed in the gap.
+    expect(agentRowAt - boxCursorAt).toBeGreaterThanOrEqual(500)
+    expect(promptSentAtMs!).toBeGreaterThan(boxCursorAt)
+    expect(promptSentAtMs!).toBeLessThan(agentRowAt)
+    expect(await finalScreen(name)).toContain(HELD_PASTE)
   })
 })

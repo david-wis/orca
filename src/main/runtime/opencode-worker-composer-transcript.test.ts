@@ -32,7 +32,8 @@ const RUNS: [string, TuiAgent][] = [
   ['opencode-2-0-18-timed-boot-hidden-pane', 'opencode2'],
   ['opencode-2-0-21-timed-cold-standalone', 'opencode2'],
   ['opencode-2-0-21-timed-cold-standalone-hidden-pane', 'opencode2'],
-  ['opencode-2-0-21-timed-busy-standalone', 'opencode2']
+  ['opencode-2-0-21-timed-natural-load-enter-dropped', 'opencode2'],
+  ['opencode-2-0-14-timed-cold-standalone', 'opencode2']
 ]
 const OPENCODE_1_RUNS = RUNS.filter(([name]) => name.startsWith('opencode-1-'))
 const AGENT_ROW_SEPARATOR = '\u00b7'
@@ -115,7 +116,7 @@ describe('an OpenCode worker gets its task only once OpenCode can submit it', ()
 
   it('never settles on the box while a slow agent list leaves the row unpainted', async () => {
     const { settledAt, boxRead } = await replay(
-      'opencode-2-0-21-timed-busy-standalone',
+      'opencode-2-0-21-timed-natural-load-enter-dropped',
       'opencode2'
     )
     expect(settledAt.composer).toBeGreaterThan(boxRead)

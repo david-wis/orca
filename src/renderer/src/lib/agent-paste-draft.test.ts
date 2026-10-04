@@ -291,33 +291,32 @@ describe('pasteDraftWhenAgentReady', () => {
     expect(onTimeout).toHaveBeenCalledTimes(1)
   })
 
-  it('best-effort pastes for opencode at the hard timeout when its process is running', async () => {
-    // Why: with no quiet window, the hard-timeout process-ownership check is the
-    // backstop if show-cursor is somehow missed — same model as Codex.
+  it('reports a timeout instead of pasting blind when OpenCode never paints its agent row', async () => {
+    // Why: OpenCode drops an Enter until the row exists, so a blind paste would sit unsent in its
+    // box. The running process does not change that; the caller gets its timeout notice.
     testState.inspectRuntimeTerminalProcess.mockResolvedValue({
       foregroundProcess: 'opencode',
       hasChildProcesses: false
     })
+    const onTimeout = vi.fn()
     const onUnconfirmedDelivery = vi.fn()
     const promise = pasteDraftWhenAgentReady({
       tabId: 'tab-1',
       content: ISSUE_URL,
       agent: 'opencode',
+      onTimeout,
       onUnconfirmedDelivery
     })
     await flushMicrotasks()
 
-    testState.ptyObserver?.(DECSET_BRACKETED_PASTE)
+    testState.ptyObserver?.(OPENCODE_BOX)
     await vi.advanceTimersByTimeAsync(20_000)
+    await flushMicrotasks(5)
 
-    await expect(promise).resolves.toBe(true)
-    expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledWith(
-      {},
-      'pty-1',
-      PASTED_ISSUE_URL
-    )
-    // The composer was never observed; the caller must be able to hedge its success notice.
-    expect(onUnconfirmedDelivery).toHaveBeenCalledTimes(1)
+    await expect(promise).resolves.toBe(false)
+    expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
+    expect(onTimeout).toHaveBeenCalledTimes(1)
+    expect(onUnconfirmedDelivery).not.toHaveBeenCalled()
   })
 
   it('keeps the existing fallback budget for unrelated markerless agents', async () => {

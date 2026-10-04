@@ -149,7 +149,10 @@ describe('every capture a row cites proves its input-box marker', () => {
       let rowRead = -1
       let read = 0
       for await (const frame of replayTranscript(chunks, meta.cols, meta.rows)) {
-        const box = frame.screenLines.findIndex((line) => line.includes(OPENCODE_PLACEHOLDER))
+        // A brief pasted before the row replaces the placeholder in the box.
+        const box = frame.screenLines.findIndex(
+          (line) => line.includes(OPENCODE_PLACEHOLDER) || line.includes('[Pasted ~')
+        )
         if (box !== -1 && boxRead === -1) {
           boxRead = read
         }

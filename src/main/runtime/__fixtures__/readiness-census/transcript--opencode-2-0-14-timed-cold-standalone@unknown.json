@@ -3,13 +3,11 @@
   "observations": {
     "clocked": [
       "0-14: now=pending:open edge=pending:open quiet=pending:open wait=ready@poll",
-      "15-289: now=ready-weak edge=ready-weak quiet=ready-weak wait=ready@start",
-      "290-291: now=ready-strong edge=ready-strong quiet=ready-strong wait=ready@start"
+      "15-29: now=ready-weak edge=ready-weak quiet=ready-weak wait=ready@start"
     ],
     "clockless": [
       "0-14: verdict=pending:open wait=ready@poll",
-      "15-289: verdict=ready-weak wait=ready@start",
-      "290-291: verdict=ready-strong wait=ready@start"
+      "15-29: verdict=ready-weak wait=ready@start"
     ]
   }
 }

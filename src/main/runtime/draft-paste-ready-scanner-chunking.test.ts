@@ -43,7 +43,9 @@ const OPENCODE_TIMED = [
   'opencode-2-0-18-timed-boot-hidden-pane',
   'opencode-2-0-21-timed-cold-standalone',
   'opencode-2-0-21-timed-cold-standalone-hidden-pane',
-  'opencode-2-0-21-timed-busy-standalone',
+  'opencode-2-0-21-timed-natural-load-enter-dropped',
+  'opencode-2-0-21-timed-enter-after-agent-row',
+  'opencode-2-0-14-timed-cold-standalone',
   'opencode-cmd-2-0-21-timed-warm-server'
 ]
 
