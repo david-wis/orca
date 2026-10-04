@@ -51,9 +51,8 @@ const ALL_OF_SIGNALS: Partial<Record<DraftPasteReadySignal, readonly SingleSigna
   'opencode-agent-row': ['render-cursor-after-bracketed-paste', 'opencode-agent-row-separator']
 }
 
-type SingleSignal =
-  | Exclude<DraftPasteReadySignal, 'opencode-agent-row'>
-  | 'opencode-agent-row-separator'
+type CompositeSignal = 'opencode-agent-row'
+type SingleSignal = Exclude<DraftPasteReadySignal, CompositeSignal> | 'opencode-agent-row-separator'
 
 const DRAFT_PASTE_READY_SIGNALS: Record<SingleSignal, DraftPasteReadySignalSpec> = {
   'codex-composer-prompt': {
@@ -204,7 +203,9 @@ export function createDraftPasteReadyScanner(readySignal: DraftPasteReadySignal)
   }
 }
 
-function isSingleSignal(signal: DraftPasteReadySignal): signal is SingleSignal {
+function isSingleSignal(
+  signal: DraftPasteReadySignal
+): signal is Exclude<DraftPasteReadySignal, CompositeSignal> {
   return signal in DRAFT_PASTE_READY_SIGNALS
 }
 
