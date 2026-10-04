@@ -23,6 +23,15 @@ type RichMarkdownImageStorage = {
   }
 }
 
+export function getRichMarkdownImageResolverContextVersion(editor: Editor): number {
+  const image: unknown = Reflect.get(editor.storage, 'image')
+  if (!image || typeof image !== 'object') {
+    return 0
+  }
+  const version: unknown = Reflect.get(image, 'contextVersion')
+  return typeof version === 'number' ? version : 0
+}
+
 export function createRichMarkdownImageResolverContext({
   filePath,
   externalSshTargetId,
