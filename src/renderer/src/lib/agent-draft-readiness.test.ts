@@ -74,6 +74,22 @@ describe('waitForAgentDraftInputReady', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('takes the box at the deadline when the grace would outlast the budget', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('window', globalThis)
+    let settled: boolean | null = null
+    void waitForAgentDraftInputReady(PTY_ID, 20_000, 'opencode-agent-row', {}).then(
+      (ready) => (settled = ready)
+    )
+    await vi.advanceTimersByTimeAsync(19_000)
+    testState.observer!(OPENCODE_BOX)
+    await vi.advanceTimersByTimeAsync(999)
+    expect(settled).toBeNull()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(settled).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('withdraws the grace when OpenCode turns bracketed paste off', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('window', globalThis)

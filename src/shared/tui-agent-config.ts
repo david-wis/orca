@@ -4,6 +4,7 @@ import type { TuiAgentConfig } from './tui-agent-config-types'
 
 export type {
   AgentPromptInjectionMode,
+  DraftPasteMarkerSignal,
   DraftPasteReadySignal,
   TuiAgentConfig,
   TuiAgentDetectionRuntime

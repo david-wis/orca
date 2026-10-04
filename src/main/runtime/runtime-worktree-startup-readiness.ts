@@ -148,7 +148,8 @@ export function waitForWorktreeStartupDraft(
     }
     unsubscribe = host.subscribeToData(ptyId, observe)
     hardTimer = setTimeout(
-      () => finish(null),
+      // A pending grace means the box was seen: take it, as the box rule would have.
+      () => finish(graceTimer ? ptyId : null),
       options.timeoutMs ?? resolveDraftPasteReadyTimeoutMs(agent)
     )
     const replay = host.readRecentOutput(ptyId)

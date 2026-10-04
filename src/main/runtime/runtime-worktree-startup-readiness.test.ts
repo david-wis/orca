@@ -146,6 +146,25 @@ describe('OpenCode submit readiness', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('takes the box at the deadline when the grace would outlast the budget', async () => {
+    vi.useFakeTimers()
+    const h = fixture()
+    const result = settle(
+      waitForWorktreeStartupDraft(h.host, 'term-1', 'opencode2', {
+        timeoutMs: 60_000,
+        requireComposerMarker: true,
+        submit: true
+      })
+    )
+    await vi.advanceTimersByTimeAsync(59_000)
+    h.emit(BOX)
+    await vi.advanceTimersByTimeAsync(999)
+    expect(result.value).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(result.value).toBe('pty-1')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('withdraws the grace when OpenCode turns bracketed paste off', async () => {
     vi.useFakeTimers()
     const h = fixture()

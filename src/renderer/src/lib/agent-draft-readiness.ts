@@ -97,7 +97,8 @@ export function waitForAgentDraftInputReady(
     }
 
     if (!settled) {
-      hardTimer = window.setTimeout(() => finish(false), timeoutMs)
+      // A pending grace means the box was seen: take it, as the box rule would have.
+      hardTimer = window.setTimeout(() => finish(graceTimer !== null), timeoutMs)
     }
   })
 }

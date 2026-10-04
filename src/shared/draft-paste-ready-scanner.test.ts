@@ -156,6 +156,17 @@ describe('createDraftPasteReadyScanner', () => {
       ).toBe(true)
     })
 
+    it('pairs a separator with a later corner only inside the same synchronized frame', () => {
+      const scanner = createDraftPasteReadyScanner('opencode-agent-row')
+      const separatorFrame = frame('\x1b[23;33H\u00b7')
+      const cornerFrame = frame('\x1b[24;24H╹')
+      expect(
+        scanner.observe(
+          `${ALT_SCREEN_ENTER}${DECSET_BRACKETED_PASTE}${separatorFrame}${cornerFrame}`
+        ).ready
+      ).toBe(false)
+    })
+
     it('ignores a separator in the footer path under the box', () => {
       const scanner = createDraftPasteReadyScanner('opencode-agent-row')
       scanner.observe(BOX)

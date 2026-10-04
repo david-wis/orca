@@ -18,7 +18,8 @@ const ESC = '\x1b'
 const AGENT_ROW_SEPARATOR = '\u00b7'
 const BOX_BOTTOM_LEFT = '\u2579'
 // Why: a narrow pane never paints the row (OpenCode 2 drops the agent below 44 columns), and nor
-// does a terminal that does not forward the alternate screen. Once the box's cursor has shown, the
+// does a terminal that does not forward the alternate screen; a theme whose raised background is
+// transparent paints no `╹`, so its starts always wait out the grace. Once the box's cursor has shown, the
 // earlier box rule takes over after this grace, so those starts still get their task, as before.
 // 5 s because the row trailed the box by at most 1.8 s in every recorded start, loaded or not.
 export const OPENCODE_AGENT_ROW_GRACE_MS = 5_000
@@ -50,7 +51,7 @@ export function createOpenCodeAgentRowScanner(): {
   let row: number | null = null
   let boxBottomRow: number | null = null
   let rowPainted = false
-  // Separator rows seen in this synchronized frame, for OpenCode 1's row-before-corner order.
+  // Separator rows seen in the open synchronized frame, for OpenCode 1's row-before-corner order.
   let framePendingRows = new Set<number>()
 
   const resetLayout = (): void => {
@@ -71,7 +72,7 @@ export function createOpenCodeAgentRowScanner(): {
       }
     } else if (mode === '25' && set && bracketedPaste) {
       boxCursorShown = true
-    } else if (mode === '2026' && set) {
+    } else if (mode === '2026') {
       framePendingRows = new Set()
     }
   }
@@ -82,7 +83,7 @@ export function createOpenCodeAgentRowScanner(): {
         onPrivateMode(mode, final === 'h')
       }
     } else if (final === 'H' || final === 'f') {
-      row = Number(params.split(';')[0] || '1')
+      row = Math.max(1, Number(params.split(';')[0] || '1'))
     } else if (final === 'J' && params === '2') {
       boxBottomRow = null
       framePendingRows = new Set()
