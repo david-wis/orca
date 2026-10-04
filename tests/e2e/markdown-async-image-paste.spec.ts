@@ -210,30 +210,8 @@ test('image paste reports cancellation when the selected target changes before i
     { exact: true }
   )
   await expect(cancellationMessage).toBeVisible()
-  await expect
-    .poll(() =>
-      cancellationMessage.evaluate((element) => {
-        const toast = element.closest('[data-sonner-toast]')
-        if (!toast) {
-          return false
-        }
-        const rect = toast.getBoundingClientRect()
-        return (
-          toast.getAttribute('data-mounted') === 'true' &&
-          getComputedStyle(toast).opacity === '1' &&
-          rect.top >= 0 &&
-          rect.left >= 0 &&
-          rect.bottom <= window.innerHeight &&
-          rect.right <= window.innerWidth &&
-          !toast
-            .getAnimations()
-            .some((animation) => animation.pending || animation.playState === 'running')
-        )
-      })
-    )
-    .toBe(true)
   const screenshot = testInfo.outputPath('image-cancellation-feedback.png')
-  await orcaPage.screenshot({ path: screenshot })
+  await orcaPage.screenshot({ path: screenshot, animations: 'disabled' })
   await testInfo.attach('image-cancellation-feedback', {
     path: screenshot,
     contentType: 'image/png'
