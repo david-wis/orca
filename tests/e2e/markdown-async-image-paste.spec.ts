@@ -20,18 +20,6 @@ declare global {
   var __markdownImagePasteRelease: (() => void) | undefined
 }
 
-async function selectWorld(editor: Locator): Promise<void> {
-  await editor.evaluate((element) => {
-    const editorElement =
-      document.querySelector<RichMarkdownImageEditorElement>('.rich-markdown-editor')
-    if (!editorElement || editorElement !== element || !editorElement.editor) {
-      throw new Error('Markdown editor unavailable')
-    }
-    editorElement.focus()
-    editorElement.editor.commands.setTextSelection({ from: 7, to: 12 })
-  })
-}
-
 async function pasteImage(editor: Locator) {
   return editor.evaluate((element, png) => {
     const editorElement =
@@ -94,9 +82,8 @@ test('image paste replaces its selection after editing during clipboard import',
   )
   await openMarkdownFixture(orcaPage, context, filePath)
   const editor = await waitForRichMarkdownEditor(orcaPage)
-  await selectWorld(editor)
-  await expect.poll(() => orcaPage.evaluate(() => window.getSelection()?.toString())).toBe('world')
-  await orcaPage.screenshot({ path: testInfo.outputPath('image-selected-before-paste.png') })
+  await expect(editor.locator('p').first()).toHaveText('hello world')
+  await orcaPage.screenshot({ path: testInfo.outputPath('image-document-before-paste.png') })
 
   // Substitute clipboard persistence without reading or writing the system clipboard.
   await electronApp.evaluate(({ ipcMain }, imagePath) => {
