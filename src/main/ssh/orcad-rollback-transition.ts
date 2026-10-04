@@ -39,7 +39,6 @@ import {
   type OrcadSlotIdentity
 } from './orcad-recovery-slot'
 import { orcadSnapshotPath } from './orcad-incumbent-recovery'
-import type { OrcadSnapshotVerdict } from './orcad-activation-transaction'
 import {
   putTransactionIncumbentBack,
   restoreAfterRejectedCandidate,
@@ -249,7 +248,9 @@ export async function rollbackOrcadLocked(
   }
 }
 
-function rescueVerdict(transaction: OrcadRollbackTransaction): OrcadSnapshotVerdict | null {
+type RestoreState = Parameters<typeof putTransactionIncumbentBack>[2]['restoreState']
+
+function rescueVerdict(transaction: OrcadRollbackTransaction): RestoreState {
   return transaction.rescue.state === 'pending' ? null : transaction.rescue
 }
 
