@@ -24,11 +24,11 @@ type RichMarkdownImageStorage = {
 }
 
 export function getRichMarkdownImageResolverContextVersion(editor: Editor): number {
-  const image: unknown = Reflect.get(editor.storage, 'image')
+  const image: unknown = 'image' in editor.storage ? editor.storage.image : null
   if (!image || typeof image !== 'object') {
     return 0
   }
-  const version: unknown = Reflect.get(image, 'contextVersion')
+  const version: unknown = 'contextVersion' in image ? image.contextVersion : null
   return typeof version === 'number' ? version : 0
 }
 
