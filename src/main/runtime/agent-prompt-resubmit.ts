@@ -1,5 +1,5 @@
-import type { TuiAgent } from '../../shared/tui-agent'
-import { TUI_AGENT_CONFIG } from '../../shared/tui-agent-config'
+import type { TerminalAgent } from '../../shared/terminal-agent'
+import { isTuiAgent, TUI_AGENT_CONFIG } from '../../shared/tui-agent-config'
 
 /**
  * Extra Enters a prompt verifier may press while no turn start is observed, for TUIs that draw
@@ -14,13 +14,13 @@ export type AgentPromptResubmit = {
 }
 
 export function getAgentSubmitRetryUntilTurnStart(
-  agent: TuiAgent | null | undefined
+  agent: TerminalAgent | null | undefined
 ): { intervalMs: number; maxRetries: number } | undefined {
-  return agent ? TUI_AGENT_CONFIG[agent].submitRetryUntilTurnStart : undefined
+  return isTuiAgent(agent) ? TUI_AGENT_CONFIG[agent].submitRetryUntilTurnStart : undefined
 }
 
 export function createAgentPromptResubmit(args: {
-  agent: TuiAgent | null | undefined
+  agent: TerminalAgent | null | undefined
   /** Whether this pane's status hooks are reporting right now. */
   hooksReporting: () => boolean
   /** Throws when the pane was replaced or an approval or question prompt is showing. */
