@@ -1,5 +1,6 @@
 import { test, expect } from './helpers/orca-app'
 import type { Locator } from '@stablyai/playwright-test'
+import type { Editor } from '@tiptap/core'
 import {
   cleanupMarkdownFixture,
   createMarkdownFixture,
@@ -9,27 +10,17 @@ import {
 } from './helpers/markdown-editor-fixture'
 import { waitForSessionReady, waitForActiveWorktree } from './helpers/store'
 
+type RichMarkdownEditorElement = HTMLElement & { editor?: Editor }
+
 async function readParagraphs(editor: Locator): Promise<string[]> {
-  return editor.evaluate((element) => {
-    const instance: unknown = Reflect.get(element, 'editor')
-    const state: unknown =
-      instance && typeof instance === 'object' ? Reflect.get(instance, 'state') : null
-    const doc: unknown = state && typeof state === 'object' ? Reflect.get(state, 'doc') : null
-    const forEach: unknown = doc && typeof doc === 'object' ? Reflect.get(doc, 'forEach') : null
-    if (typeof forEach !== 'function') {
+  return editor.evaluate(() => {
+    const instance =
+      document.querySelector<RichMarkdownEditorElement>('.rich-markdown-editor')?.editor
+    if (!instance) {
       throw new Error('Document unavailable')
     }
     const texts: string[] = []
-    Reflect.apply(forEach, doc, [
-      (node: unknown) => {
-        const text: unknown =
-          node && typeof node === 'object' ? Reflect.get(node, 'textContent') : null
-        if (typeof text !== 'string') {
-          throw new Error('Paragraph unavailable')
-        }
-        texts.push(text)
-      }
-    ])
+    instance.state.doc.forEach((node) => texts.push(node.textContent))
     return texts
   })
 }
@@ -53,25 +44,20 @@ test('keeps a large paste at its original selection after the caret moves', asyn
   const editor = await waitForRichMarkdownEditor(orcaPage)
   const payload = 'PASTE_SENTINEL '.repeat(5500)
   await editor.evaluate((element, text) => {
-    const instance: unknown = Reflect.get(element, 'editor')
-    if (!instance || typeof instance !== 'object') {
+    const instance =
+      document.querySelector<RichMarkdownEditorElement>('.rich-markdown-editor')?.editor
+    if (!instance) {
       throw new Error('Editor unavailable')
     }
-    const commands: unknown = Reflect.get(instance, 'commands')
-    const select: unknown =
-      commands && typeof commands === 'object' ? Reflect.get(commands, 'setTextSelection') : null
-    if (typeof select !== 'function') {
-      throw new Error('Selection unavailable')
-    }
     element.focus()
-    Reflect.apply(select, commands, [{ from: 7, to: 12 }])
+    instance.commands.setTextSelection({ from: 7, to: 12 })
     const data = new DataTransfer()
     data.setData('text/plain', text)
     element.dispatchEvent(
       new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data })
     )
     // Move during the production byte-measurement yield in this same input task.
-    Reflect.apply(select, commands, [29])
+    instance.commands.setTextSelection(29)
   }, payload)
   await expect
     .poll(async () => (await readParagraphs(editor)).join('').length)
