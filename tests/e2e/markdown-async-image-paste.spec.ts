@@ -159,3 +159,74 @@ test('image paste replaces its selection after editing during clipboard import',
     'The selected word should be replaced by this image.'
   )
 })
+
+test('image paste reports cancellation when the selected target changes before import', async ({
+  orcaPage,
+  electronApp,
+  registerPostElectronShutdownCleanup
+}, testInfo) => {
+  const context = await getActiveWorktreeContext(orcaPage)
+  const filePath = await createMarkdownFixture(
+    context,
+    '.orca-e2e-markdown-image',
+    'cancel-image',
+    testInfo.workerIndex,
+    'hello world'
+  )
+  const imagePath = testInfo.outputPath('pending-image.png')
+  await writeFile(imagePath, Buffer.from(PNG, 'base64'))
+  registerPostElectronShutdownCleanup(() => cleanupMarkdownFixture(filePath))
+  await openMarkdownFixture(orcaPage, context, filePath)
+  const editor = await waitForRichMarkdownEditor(orcaPage)
+  await electronApp.evaluate(({ ipcMain }, imagePath) => {
+    ipcMain.removeHandler('clipboard:saveImageAsTempFile')
+    ipcMain.handle(
+      'clipboard:saveImageAsTempFile',
+      () =>
+        new Promise<string>((resolve) => {
+          globalThis.__markdownImagePasteRelease = () => resolve(imagePath)
+        })
+    )
+  }, imagePath)
+  const pasteSelection = await pasteImage(editor)
+  expect(pasteSelection.before).toEqual({ from: 7, to: 12, selectedText: 'world' })
+  expect(pasteSelection.after).toEqual(pasteSelection.before)
+  expect(pasteSelection.handled).toBe(true)
+  await expect
+    .poll(() =>
+      electronApp.evaluate(() => typeof globalThis.__markdownImagePasteRelease === 'function')
+    )
+    .toBe(true)
+
+  await editor.evaluate((element) => {
+    const editorElement =
+      document.querySelector<RichMarkdownImageEditorElement>('.rich-markdown-editor')
+    if (!editorElement || editorElement !== element || !editorElement.editor) {
+      throw new Error('Markdown editor unavailable')
+    }
+    editorElement.focus()
+    editorElement.editor.commands.setTextSelection({ from: 7, to: 12 })
+    editorElement.editor.commands.insertContent('changed')
+  })
+  await electronApp.evaluate(() => {
+    const release = globalThis.__markdownImagePasteRelease
+    if (typeof release !== 'function') {
+      throw new Error('Clipboard import not pending')
+    }
+    release()
+    globalThis.__markdownImagePasteRelease = undefined
+  })
+  await expect(editor.locator('p').first()).toHaveText('hello changed')
+  await expect(editor.locator('img:not(.ProseMirror-separator)')).toHaveCount(0)
+  await expect(
+    orcaPage.getByText('Image insertion canceled because the destination changed. Try again.', {
+      exact: true
+    })
+  ).toBeVisible()
+  const screenshot = testInfo.outputPath('image-cancellation-feedback.png')
+  await orcaPage.screenshot({ path: screenshot })
+  await testInfo.attach('image-cancellation-feedback', {
+    path: screenshot,
+    contentType: 'image/png'
+  })
+})
