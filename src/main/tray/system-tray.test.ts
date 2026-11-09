@@ -289,16 +289,20 @@ describe('createSystemTray', () => {
     expect(warn).toHaveBeenCalledWith('[system-tray] macOS menu bar icon could not be loaded')
   })
 
-  it('is idempotent and remains disabled on Linux', async () => {
-    setPlatform('darwin')
+  it('routes Linux activation to the window and Quit to the host', async () => {
+    setPlatform('linux')
     const { createSystemTray } = await loadModule()
     const options = createOptions()
-    expect(createSystemTray(options)).toBe(createSystemTray(options))
-    expect(trayInstances).toHaveLength(1)
 
-    setPlatform('linux')
-    const linuxModule = await loadModule()
-    expect(linuxModule.createSystemTray(options)).toBeNull()
+    createSystemTray(options)
+    const activate = trayInstances[0].on.mock.calls.find((call) => call[0] === 'click')?.[1]
+    if (typeof activate === 'function') {
+      activate()
+    }
+    builtMenuItems().at(-1)?.click?.()
+
+    expect(options.onOpen).toHaveBeenCalledOnce()
+    expect(options.onQuit).toHaveBeenCalledOnce()
   })
 })
 

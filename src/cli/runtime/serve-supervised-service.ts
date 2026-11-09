@@ -20,7 +20,8 @@ import {
 import {
   currentServeChild,
   requestSupervisedServeStop,
-  resetSupervisedServeStop
+  resetSupervisedServeStop,
+  supervisedStopSignal
 } from './serve-supervised-stop'
 import type { ServeBundlePark } from '../../shared/serve-bundle-park'
 import { createSupervisedParkWatch } from './serve-supervised-park-watch'
@@ -259,7 +260,7 @@ export async function superviseServeService(options: SupervisedServeOptions): Pr
       const attempt = parkWatch
         ? await parkWatch.during(options.runOnce)
         : { parked: false, settled: await settle(options.runOnce) }
-      if (stopped) {
+      if (stopped || supervisedStopSignal().aborted) {
         break
       }
       if (attempt.parked) {

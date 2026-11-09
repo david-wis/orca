@@ -8,6 +8,9 @@ const stopAgentHookServer = idle()
 const stopStructuredAgentSessionRuntime = settled()
 const beginSshShutdown = settled()
 const killAllPty = idle()
+const disconnectDaemon = settled()
+const shutdownDaemon = settled()
+const isQuittingForUpdate = vi.fn(() => false)
 /** Final-save calls seen by the first microtask after the SSH shutdown began. */
 let flushesByNextMicrotask = -1
 
@@ -18,8 +21,8 @@ const dependencies: Record<string, Record<string, unknown>> = {
   '../ipc/folder-repo-git-upgrade': { stopFolderRepoGitUpgradeWatch: idle() },
   '../ipc/pty/kill-all': { killAllPty },
   '../daemon/providers/lifecycle/daemon-provider-state': {
-    disconnectDaemon: settled(),
-    shutdownDaemon: settled()
+    disconnectDaemon,
+    shutdownDaemon
   },
   '../ipc/ssh/ssh-shutdown-drain': { beginSshShutdown },
   './main-process-connector-startup': { desktopConnectorCloud: () => null },
@@ -58,8 +61,8 @@ const dependencies: Record<string, Record<string, unknown>> = {
   '../tray/system-tray': { destroySystemTray: idle() },
   '../telemetry/client': { shutdownTelemetry: settled() },
   '../observability/index': { shutdownObservability: settled() },
-  '../updater': { isQuittingForUpdate: vi.fn(() => false) },
-  '../updater-lifecycle-diagnostics': { recordUpdaterLifecycle: idle() },
+  '../updater/updater-service': { isQuittingForUpdate },
+  '../updater/updater-lifecycle-diagnostics': { recordUpdaterLifecycle: idle() },
   '../macos-permissions/macos-tcc-prompt-notice': { stopTccPromptNotice: idle() },
   '../pty/history/terminal-history-gc': { cancelHistoryGc: idle() },
   './window-all-closed-quit-policy': { shouldQuitWhenAllWindowsClosed: vi.fn(() => false) },
@@ -82,10 +85,14 @@ afterEach(() => {
 
 async function startQuit(
   flushFinalOrThrowAsync: () => Promise<void>,
-  services: Record<string, unknown> = {}
+  services: Record<string, unknown> = {},
+  quitOptions: { full?: boolean; update?: boolean } = {}
 ) {
   beginSshShutdown.mockClear()
   killAllPty.mockClear()
+  disconnectDaemon.mockClear()
+  shutdownDaemon.mockClear()
+  isQuittingForUpdate.mockReturnValue(quitOptions.update === true)
   flushesByNextMicrotask = -1
   vi.resetModules()
   vi.useFakeTimers()
@@ -118,10 +125,30 @@ async function startQuit(
   const { quitTeardownStartGate } = await import('./quit/quit-teardown-start-gate')
   quitTeardownStartGate.resetForTests()
   installMainProcessQuitHandlers()
+  if (quitOptions.full) {
+    const { markFullProcessQuitRequested } = await import('./process-quit-request')
+    markFullProcessQuitRequested()
+  }
   app.emit('before-quit', { defaultPrevented: false })
   app.emit('will-quit', { preventDefault: vi.fn() })
   return { app, admission, store, state }
 }
+
+it('shuts down terminal hosts on full quit instead of preserving their sessions', async () => {
+  const { app } = await startQuit(async () => {}, {}, { full: true })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(shutdownDaemon).toHaveBeenCalledWith({ includeLegacy: true })
+  expect(disconnectDaemon).not.toHaveBeenCalled()
+  expect(app.quit).toHaveBeenCalled()
+})
+
+it('preserves terminal sessions when an update follows an uncommitted full quit', async () => {
+  const { app } = await startQuit(async () => {}, {}, { full: true, update: true })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(disconnectDaemon).toHaveBeenCalled()
+  expect(shutdownDaemon).not.toHaveBeenCalled()
+  expect(app.quit).toHaveBeenCalled()
+})
 
 it('quits at the teardown deadline without releasing admission while the writer is pending', async () => {
   const { app, admission, store, state } = await startQuit(() => new Promise<void>(() => {}))

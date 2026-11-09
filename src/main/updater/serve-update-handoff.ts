@@ -85,7 +85,8 @@ export function installServeSupervisorDisconnectQuit(
 ): () => void {
   const isBrowserSidecar = process.env[BROWSER_SIDECAR_OWNER_ENV] === '1'
   delete process.env[BROWSER_SIDECAR_OWNER_ENV]
-  if (!isServeMode || (!isBrowserSidecar && !hasServeUpdateSupervisor())) {
+  const hasLinuxSupervisor = process.platform === 'linux' && parent.connected === true
+  if (!isServeMode || (!isBrowserSidecar && !hasLinuxSupervisor && !hasServeUpdateSupervisor())) {
     return () => undefined
   }
   const quit = (): void => quitProcess()

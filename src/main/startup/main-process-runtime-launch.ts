@@ -54,6 +54,7 @@ import { resolveUpdateInstallMode } from '../updater/updater-service'
 import { scheduleAgentLaunchRecordWarmup } from './agent-launch-record-warmup'
 import { emitServeBrowserIdentityActionLine } from '../server/serve-stdout-boundary'
 import { getBrowserIdentityModeStatus } from '../browser/identity/mode/browser-identity-mode-store'
+import { createServeSystemTray } from './serve-system-tray'
 
 type RuntimeService = NonNullable<typeof state.runtime>
 
@@ -225,6 +226,7 @@ async function launchServeMode(
     onBeforeUpdateQuitFailure: 'abort',
     updateInstallMode: resolveUpdateInstallMode(true)
   })
+  createServeSystemTray()
 }
 
 async function launchDesktopMode(

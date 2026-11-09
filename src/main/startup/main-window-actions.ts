@@ -44,6 +44,7 @@ import {
 import { isHoldingForNewerProtocolDaemon } from '../daemon/providers/routing/daemon-newer-protocol-hold'
 import { getDaemonProvider } from '../daemon/providers/lifecycle/daemon-provider-state'
 import { confirmNoDaemonSessionsRemain } from '../ipc/pty/pty-management'
+import { quitServeFromTray } from './serve-tray-quit'
 
 // Inject the opener to avoid an actions/lifecycle import cycle.
 let openWindow: (options?: { revealOnDidFinishLoad?: boolean }) => BrowserWindow
@@ -218,13 +219,16 @@ export function getSystemTrayOptions(): SystemTrayOptions | null {
     appIcon: store.getSettings().appIcon,
     isDevInstance: state.devInstanceIdentity?.isDev ?? false,
     devInstanceLabel: state.devInstanceIdentity?.devLabel ?? null,
-    onOpen: showMainWindowFromTray,
+    onOpen: state.isServeMode
+      ? () => state.desktopActivationGate?.requestActivation()
+      : showMainWindowFromTray,
     onOpenSettings: openSettingsFromSystemMenu,
     onCheckForUpdates: () => {
       showMainWindowFromTray()
       runUserInitiatedUpdateCheck()
     },
-    onQuit: quitFromSystemTray,
+    onQuit:
+      state.isServeMode && process.platform === 'linux' ? quitServeFromTray : quitFromSystemTray,
     ...(state.isServeMode
       ? {}
       : { onQuitAndStopAllSessions: quitAndStopAllSessionsFromUserCommand })

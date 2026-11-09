@@ -246,6 +246,12 @@ Copies of a machine image share the server identity: the pairing key, the paired
 - `orca serve reset-identity` does the same reset on demand. Stop Orca on that machine first; the command asks for confirmation, or pass `--yes`.
 - Each reset moves the replaced files into a new folder under `orca-identity-backups` in the Orca data directory (the five most recent are kept). To undo an unwanted reset, stop Orca and copy the files from that folder back into the data directory.
 
+### Linux system tray
+
+On Linux desktops with a system tray, Orca shows a native icon. When `orca-ide serve` uses the Electron runtime, the icon is available without opening a desktop window. Choose **Open Orca** to open the server's desktop interface. **Quit** exits the server and its restart supervisor, stops its agents and terminal hosts, and removes the tray icon. Closing only the desktop window keeps the server running.
+
+The Node-only `orcad` runtime has no desktop tray. This tray uses the desktop's StatusNotifierItem support, with an XEmbed fallback.
+
 ### Mobile from a headless server
 
 For the Orca mobile app, request a mobile-scoped QR code and link:

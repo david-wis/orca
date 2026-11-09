@@ -28,11 +28,13 @@ export type ServeUpdateHandoffState =
       runtimeId: string
     }
 
-export type ServeSupervisorMessage = {
-  type: 'orca:serve-ready'
-  version: string
-  runtimeId: string
-}
+export type ServeSupervisorMessage =
+  | {
+      type: 'orca:serve-ready'
+      version: string
+      runtimeId: string
+    }
+  | { type: 'orca:serve-quit' }
 
 export function getServeUpdateHandoffPath(userDataPath: string): string {
   return join(userDataPath, SERVE_UPDATE_HANDOFF_FILE)
@@ -66,6 +68,9 @@ export function parseServeSupervisorMessage(value: unknown): ServeSupervisorMess
     return null
   }
   const message = value as Record<string, unknown>
+  if (message.type === 'orca:serve-quit') {
+    return { type: 'orca:serve-quit' }
+  }
   if (
     message.type !== 'orca:serve-ready' ||
     typeof message.version !== 'string' ||

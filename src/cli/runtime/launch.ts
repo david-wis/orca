@@ -246,7 +246,7 @@ function spawnElectronServe(
     stdio:
       args.recipeJson === true
         ? ['ignore', 'pipe', 'inherit']
-        : handoffPath
+        : handoffPath || process.platform === 'linux'
           ? ['inherit', 'inherit', 'inherit', 'ipc']
           : 'inherit',
     env: childEnv

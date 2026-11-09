@@ -21,7 +21,7 @@ export type SystemTrayOptions = {
   onOpenSettings: () => void
   /** Run the existing user-initiated update check. */
   onCheckForUpdates: () => void
-  /** Caller must mark quit intent; serve-mode user Quit may close only desktop windows. */
+  /** Caller owns process quit intent and the session retention policy. */
   onQuit: () => void
   /** Confirm, then quit with every terminal session stopped; omitted where the item must not show (serve mode). */
   onQuitAndStopAllSessions?: () => void
@@ -50,7 +50,7 @@ function baseTooltip(): string {
   return devIndicator.label ? `Orca DEV (${devIndicator.label})` : 'Orca DEV'
 }
 
-// Downscale the app image for Windows' 16px notification-area slot.
+// Windows uses a smaller notification-area slot than Linux panels.
 const TRAY_ICON_SIZE = 16
 
 function applyTrayImage(): void {
@@ -196,9 +196,9 @@ function safeMenuAction(action: () => void): () => void {
   }
 }
 
-/** Create at most one Windows/macOS tray; Linux has none. */
+/** Create at most one native tray on supported desktop platforms. */
 export function createSystemTray(opts: SystemTrayOptions): Tray | null {
-  if (process.platform !== 'win32' && process.platform !== 'darwin') {
+  if (!['win32', 'darwin', 'linux'].includes(process.platform)) {
     return null
   }
   if (tray && !tray.isDestroyed()) {
@@ -216,20 +216,26 @@ export function createSystemTray(opts: SystemTrayOptions): Tray | null {
       baseTrayImage = stampMacDevBadge(baseTrayImage)
     }
   } else {
+    const size = process.platform === 'linux' ? 24 : TRAY_ICON_SIZE
     baseTrayImage = createAppIconImage(opts.appIcon).resize({
-      width: TRAY_ICON_SIZE,
-      height: TRAY_ICON_SIZE
+      width: size,
+      height: size
     })
   }
 
-  tray = new Tray(baseTrayImage)
+  try {
+    tray = new Tray(baseTrayImage)
+  } catch (error) {
+    console.warn('[system-tray] native tray could not be created', error)
+    return null
+  }
   applyTrayImage()
 
   trayOptions = opts
   tray.setContextMenu(buildTrayMenu(opts))
-  if (process.platform === 'win32') {
+  if (process.platform !== 'darwin') {
     tray.setToolTip(baseTooltip())
-    // Windows left-click restores the app; macOS uses its attached menu.
+    // Linux activation depends on the panel; macOS uses its attached menu.
     tray.on(
       'click',
       safeMenuAction(() => opts.onOpen())

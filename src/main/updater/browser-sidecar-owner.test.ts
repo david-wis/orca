@@ -40,3 +40,14 @@ it('removes the listener on disposal', () => {
   parent.emit('disconnect')
   expect(quit).not.toHaveBeenCalled()
 })
+
+it.skipIf(process.platform !== 'linux')(
+  'stops Linux serve when its IPC supervisor disappears',
+  () => {
+    vi.stubEnv(BROWSER_SIDECAR_OWNER_ENV, undefined)
+    const parent = Object.assign(new EventEmitter(), { connected: true })
+    installServeSupervisorDisconnectQuit(true, parent)
+    parent.emit('disconnect')
+    expect(quit).toHaveBeenCalledOnce()
+  }
+)

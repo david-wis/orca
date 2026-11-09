@@ -25,6 +25,7 @@ import {
 import { PROTOCOL_VERSION } from '../../protocol/daemon-protocol-version'
 import type { DaemonSessionInfo, SessionInfo } from '../../protocol/daemon-session-info'
 import type { DaemonIdleRetirementResult } from '../adapter/daemon-pty-runtime-state'
+import { cleanupDaemonForProtocol } from '../../launch/daemon-protocol-cleanup'
 
 let spawner: DaemonSpawner | null = null
 let adapter: DaemonProvider | null = null
@@ -117,11 +118,28 @@ export async function disconnectDaemon(): Promise<void> {
 }
 
 /** Kill the daemon and all its sessions. Use for full cleanup only. */
-export async function shutdownDaemon(): Promise<void> {
+export async function shutdownDaemon(options: { includeLegacy?: boolean } = {}): Promise<void> {
+  const legacyStops =
+    options.includeLegacy && adapter
+      ? getLegacyDaemonAdapters(adapter).map(async (legacy) => {
+          const identity = legacy.getDaemonIdentity()
+          if (!identity) {
+            throw new Error('Cannot verify the legacy terminal host before full quit')
+          }
+          await cleanupDaemonForProtocol(getRuntimeDir(), legacy.protocolVersion, identity.pid)
+        })
+      : []
   adapter?.dispose()
   adapter = null
-  await spawner?.shutdown()
+  const results = await Promise.allSettled([spawner?.shutdown(), ...legacyStops])
   spawner = null
+  const failures = results.filter((result) => result.status === 'rejected')
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures.map((result) => result.reason),
+      'Terminal host shutdown failed'
+    )
+  }
 }
 
 /** Returns null unless every daemon generation supplied an authoritative inventory. */

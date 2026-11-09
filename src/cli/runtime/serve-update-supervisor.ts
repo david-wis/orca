@@ -15,6 +15,7 @@ import { serveSignalExitError } from './serve-signal-exit-diagnostic'
 import { waitForMacBundleVersion } from './mac-app-update-bundle'
 import {
   mayRespawn,
+  requestSupervisedServeStop,
   supervisedStopSignal,
   trackServeChild,
   untrackServeChild
@@ -188,6 +189,11 @@ function waitForForegroundChild(
     const tracked = { pid: child.pid ?? null, stop: () => forwardSignal('SIGTERM') }
     const handleMessage = (value: unknown): void => {
       const message = parseServeSupervisorMessage(value)
+      if (message?.type === 'orca:serve-quit') {
+        requestSupervisedServeStop()
+        tracked.stop()
+        return
+      }
       if (!message || !expected || readiness !== 'pending') {
         return
       }
@@ -219,9 +225,7 @@ function waitForForegroundChild(
       if (forwardsHangup) {
         process.off('SIGHUP', forwardSignal)
       }
-      if (typeof child.off === 'function') {
-        child.off('message', handleMessage)
-      }
+      child.off('message', handleMessage)
       if (forceKillTimer) {
         clearTimeout(forceKillTimer)
       }
@@ -234,9 +238,7 @@ function waitForForegroundChild(
     if (forwardsHangup) {
       process.on('SIGHUP', forwardSignal)
     }
-    if (typeof child.on === 'function') {
-      child.on('message', handleMessage)
-    }
+    child.on('message', handleMessage)
     trackServeChild(tracked)
     if (expected) {
       readyTimer = setTimeout(() => {
